@@ -15,6 +15,8 @@
 牧场经济收益：
 72马奶+270鸡蛋（加速鸡场360/16*2*6=270，喝增产酒能带来约1500现金增益）：72*38+270*28=10296。
 经验收益：
-鸡蛋鸡饲料经验均为3。3*270=810
-马奶马饲料经验为5+4=9。72*9=648 
-水稻很快就会触到经验上限，
+鸡蛋鸡饲料经验均为3，3x270=810;马奶马饲料经验为5+4=9，72x9=648
+
+摆位参考：
+<img width="1299" height="719" alt="76a3fd8136dd2af0d68f4cf5ffec1849" src="https://github.com/user-attachments/assets/56d27f6d-b130-4ce8-9ac8-2ccc9d706ae6" />
+<img width="1340" height="714" alt="2e217ab6a7249aa4b54223cc2d6c6cb1" src="https://github.com/user-attachments/assets/2b80a654-3149-4d1e-86a8-cf99f9ca5137" />
