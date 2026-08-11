@@ -1,29 +1,17 @@
+// 好像小麦测试还是有点问题，我的主脚本用这个参数不会偏移。
+
+// 确保无障碍服务已开启
 auto.waitFor();
+
+// 清理上一次运行可能残留的悬浮窗
+floaty.closeAll();
 setScreenMetrics(2412, 1080);
 
-try {
-    var __t = floaty.window(<text text="."/>);
-    __t.close();
-} catch (e) {
-    toastLog("没有悬浮窗权限，去系统设置里开启后重新运行");
-    exit();
-}
-
-function waitForLandscape() {
-    if (device.width < device.height) {
-        toastLog("请切回游戏，保持横屏，稍等会自动继续");
-        while (device.width < device.height) {
-            sleep(500);
-        }
-        sleep(1000);
-    }
-}
-waitForLandscape();
-
-var CENTER_TILE = [1200, 540];
-var LEFT_X = 170, RIGHT_X = 2250;
-var LOOP_COUNT = 3;
-var holdMs = 400;
+// ================= 从主脚本复刻的环境配置 =================
+var CONFIG = {
+    LEFT_X: 170, RIGHT_X: 2250,
+    shrink: 90, shrink2: 55, holdMs: 400
+};
 
 var BASE_STEPS = {
     entry: 15,
@@ -32,17 +20,24 @@ var BASE_STEPS = {
     l3_close: 18, l3_enter: 8, l3_top: 22, l3_right: 10, l3_bottom: 22
 };
 
-var cfg = {
-    wheat:  { topY: 150, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: [740, 910], loop1Ms: 25, loop2Ms: 25, loop3Ms: 25 },
-    sickle: { topY: 154, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: [1220, 856], loop1Ms: 25, loop2Ms: 25, loop3Ms: 25 }
+// 当前默认测试参数（沿用主脚本小麦参数）
+var testParams = {
+    topY: 151, // 153 水稻
+    bottomY: 924,
+    loop1Ms: 19, // 22 水稻
+    loop2Ms: 17, // 21 水稻
+    loop3Ms: 15, // 20 水稻
+    icon: [740, 910] // [935, 900] 水稻
 };
 
-var currentMode = "wheat"; // "wheat" 或 "sickle"，切换按钮控制
-
-function scaleSteps(base, ms) {
-    return Math.max(2, Math.round(base * ms / 25));
+// ================= 核心算法（原汁原味） =================
+function scaleSteps(base, ms) { return Math.max(2, Math.round(base * ms / 25)); }
+function dist(a, b) { return Math.hypot(b[0] - a[0], b[1] - a[1]); }
+function matchSteps(fromPt, toPt, nextSteps, nextDist) {
+    var d = dist(fromPt, toPt);
+    if (nextDist <= 0) return 2;
+    return Math.max(2, Math.round(d * nextSteps / nextDist));
 }
-
 function generateLine(start, end, steps) {
     var pts = [];
     for (var i = 1; i <= steps; i++) {
@@ -50,66 +45,84 @@ function generateLine(start, end, steps) {
             Math.round(start[0] + (end[0] - start[0]) * (i / steps)),
             Math.round(start[1] + (end[1] - start[1]) * (i / steps)),
         ]);
-    }
+    } 
     return pts;
 }
-
 function circlePoints(center, radius, count) {
     var pts = [];
     for (var k = 0; k < count; k++) {
-        var a = (2 * Math.PI * k) / count;
-        pts.push([Math.round(center[0] + radius * Math.cos(a)), Math.round(center[1] + radius * Math.sin(a))]);
+        var angle = (2 * Math.PI * k) / count;
+        pts.push([
+            Math.round(center[0] + radius * Math.cos(angle)),
+            Math.round(center[1] + radius * Math.sin(angle)),
+        ]);
     }
     return pts;
 }
 
-function buildPoints(key) {
-    var p = cfg[key];
+// ================= 针对测试需求改造的轨迹生成 =================
+function runTestGesture() {
+    var p = testParams;
     var points = [];
-    var holdReps = Math.max(6, Math.round(holdMs / 60));
+    var holdReps = Math.max(6, Math.round(CONFIG.holdMs / 60));
+    
+    // 1. 在图标位置长按
     for (var r = 0; r < holdReps; r++) points.push(p.icon);
-    var circle = circlePoints(CENTER_TILE, 25, 10);
-    points = points.concat(circle, circle, circle);
-    for (var r2 = 0; r2 < 4; r2++) points.push(CENTER_TILE);
+    
+    // 2. 按你的思路：不转圈！直接往左上方偏开 100 像素作为一个安全过渡点，避开中心土地
+    var safePoint = [p.icon[0] - 100, p.icon[1] - 100];
+    points = points.concat(generateLine(p.icon, safePoint, 10));
 
-    var l1 = LEFT_X, r1 = RIGHT_X, t1 = p.topY, b1 = p.bottomY;
+    var l1 = CONFIG.LEFT_X, r1 = CONFIG.RIGHT_X, t1 = p.topY, b1 = p.bottomY;
     var TL = [l1, t1], TR = [r1, t1], BR = [r1, b1], BL = [l1, b1];
 
-    points = points.concat(generateLine(CENTER_TILE, TL, scaleSteps(BASE_STEPS.entry, p.loop1Ms)));
+    // 3. 从过渡点直奔左上角
+    points = points.concat(generateLine(safePoint, TL, scaleSteps(BASE_STEPS.entry, p.loop1Ms)));
+
+    // 4. 跑一圈
     points = points.concat(generateLine(TL, TR, scaleSteps(BASE_STEPS.l1_top, p.loop1Ms)));
     points = points.concat(generateLine(TR, BR, scaleSteps(BASE_STEPS.l1_right, p.loop1Ms)));
     points = points.concat(generateLine(BR, BL, scaleSteps(BASE_STEPS.l1_bottom, p.loop1Ms)));
     points = points.concat(generateLine(BL, TL, scaleSteps(BASE_STEPS.l1_left, p.loop1Ms)));
 
-    var l2 = l1 + p.shrink, r2 = r1 - p.shrink, t2 = t1 + p.shrink, b2 = b1 - p.shrink;
+    // 5. 跑二圈
+    var l2 = l1 + CONFIG.shrink, r2 = r1 - CONFIG.shrink, t2 = t1 + CONFIG.shrink, b2 = b1 - CONFIG.shrink;
     var TL2 = [l2, t2], TR2 = [r2, t2], BR2 = [r2, b2], BL2 = [l2, b2];
-    points = points.concat(generateLine(TL, TL2, scaleSteps(BASE_STEPS.l2_enter, p.loop2Ms)));
-    points = points.concat(generateLine(TL2, TR2, scaleSteps(BASE_STEPS.l2_top, p.loop2Ms)));
+    var l2TopSteps = scaleSteps(BASE_STEPS.l2_top, p.loop2Ms);
+    var l2TopDist = dist(TL2, TR2);
+    points = points.concat(generateLine(TL, TL2, matchSteps(TL, TL2, l2TopSteps, l2TopDist)));
+    points = points.concat(generateLine(TL2, TR2, l2TopSteps));
     points = points.concat(generateLine(TR2, BR2, scaleSteps(BASE_STEPS.l2_right, p.loop2Ms)));
     points = points.concat(generateLine(BR2, BL2, scaleSteps(BASE_STEPS.l2_bottom, p.loop2Ms)));
 
+    // 6. 跑三圈
     var lastCorner = BL2;
-    if (LOOP_COUNT >= 3) {
-        points = points.concat(generateLine(BL2, TL2, scaleSteps(BASE_STEPS.l3_close, p.loop3Ms)));
-        var l3 = l2 + p.shrink2, r3 = r2 - p.shrink2, t3 = t2 + p.shrink2, b3 = b2 - p.shrink2;
-        var TL3 = [l3, t3], TR3 = [r3, t3], BR3 = [r3, b3], BL3 = [l3, b3];
-        points = points.concat(generateLine(TL2, TL3, scaleSteps(BASE_STEPS.l3_enter, p.loop3Ms)));
-        points = points.concat(generateLine(TL3, TR3, scaleSteps(BASE_STEPS.l3_top, p.loop3Ms)));
-        points = points.concat(generateLine(TR3, BR3, scaleSteps(BASE_STEPS.l3_right, p.loop3Ms)));
-        points = points.concat(generateLine(BR3, BL3, scaleSteps(BASE_STEPS.l3_bottom, p.loop3Ms)));
-        lastCorner = BL3;
-    }
+    points = points.concat(generateLine(BL2, TL2, scaleSteps(BASE_STEPS.l3_close, p.loop2Ms)));
 
-    points = points.concat(generateLine(lastCorner, p.hook1, 15));
-    points = points.concat(generateLine(p.hook1, p.hook2, 15));
-    points = points.concat(generateLine(p.hook2, CENTER_TILE, 15));
-    return points;
+    var l3 = l2 + CONFIG.shrink2, r3 = r2 - CONFIG.shrink2, t3 = t2 + CONFIG.shrink2, b3 = b2 - CONFIG.shrink2;
+    var TL3 = [l3, t3], TR3 = [r3, t3], BR3 = [r3, b3], BL3 = [l3, b3];
+    var l3TopSteps = scaleSteps(BASE_STEPS.l3_top, p.loop3Ms);
+    var l3TopDist = dist(TL3, TR3);
+    points = points.concat(generateLine(TL2, TL3, matchSteps(TL2, TL3, l3TopSteps, l3TopDist)));
+    points = points.concat(generateLine(TL3, TR3, l3TopSteps));
+    points = points.concat(generateLine(TR3, BR3, scaleSteps(BASE_STEPS.l3_right, p.loop3Ms)));
+    points = points.concat(generateLine(BR3, BL3, scaleSteps(BASE_STEPS.l3_bottom, p.loop3Ms)));
+
+    // 7. 直接在三圈的最下角收工，绝不返回中心
+    var duration = Math.max(points.length * 25, 500);
+    gesture.apply(null, [duration].concat(points));
 }
 
-function runAction(key) {
-    var points = buildPoints(key);
-    var duration = Math.max(points.length * 25, 500);
-    var t0 = Date.now();
+// ================= 悬浮窗面板 UI =================
+var panel = floaty.window(
+    <frame id="root" bg="#DD222222">
+        <vertical padding="6">
+            <text id="dragHandle" text="≡ 按住这里拖动面板 ≡" textColor="#ffdd00" textSize="12sp" bg="#33ffffff" padding="4" gravity="center"/>
+
+            <horizontal gravity="center_vertical" marginTop="8">
+                <text id="topYLabel" text="上边缘: 152" textColor="#fff" textSize="11sp" w="112" marginLeft="6"/>
+                <button id="topYMinus" text="-" w="36" h="36" textSize="12sp" marginLeft="6" padding="0"/>
+                <button id="topYPlus" text="+" w="3    var t0 = Date.now();
     gesture.apply(null, [duration].concat(points));
     return Date.now() - t0;
 }
