@@ -136,7 +136,7 @@ var CONFIG = {
     recenterTileAfterRanch: [1500, 20],
     SAFE_CLOSE: [2290, 980],
     factoryPopupSafeClick: [1760, 520],
-    coopPopupSafeClick: [1760, 320],
+    coopPopupSafeClick: [1760, 520],
     // ============ 爆仓检测参数 ============
     warehouseFullCheckRegion: [800, 480, 200, 140],
     warehouseFullUniformTolerance: 12,
