@@ -1,4 +1,4 @@
-﻿// Auto火力种田王 V2.6（稳定版）
+// Auto火力种田王 V2.6（稳定版）
 
 // 确保无障碍服务已开启
 auto.waitFor();
@@ -767,7 +767,7 @@ function checkAndRunRanchTasks() {
     }
 }
 
-// ================= 菜单区域检测逻辑 (核心修改：区域突变检测 + 350ms防脱手缓冲) =================
+// ================= 菜单区域检测逻辑 (核心修改：区域突变检测 + 350ms防脱手缓冲 + 点空自动重试) =================
 var menuRefColors = null;
 
 function getRegionColorFingerprint(img) {
@@ -790,34 +790,89 @@ function hasMenuPopped(img) {
     return diffCount > (currentSamples.length * 0.6);
 }
 
-function clickAndAwaitMenu(clickX, clickY) {
-    // 1. 点之前先记录底图的颜色
-    var imgRef = safeCaptureScreen();
-    if (imgRef) {
-        menuRefColors = getRegionColorFingerprint(imgRef);
-        imgRef.recycle();
+// 独立于 DriftGuard 的调试截图保存：只是留档，不写入 DriftGuard.debugImgPaths，
+// 避免和"画面偏移三图校验/交叉比对"用的截图列表混在一起、互相干扰判断
+function saveMenuMissDebugImg(label) {
+    try {
+        var img = safeCaptureScreen();
+        if (!img) return;
+        var ts = new java.text.SimpleDateFormat('yyyyMMdd_HHmmss_SSS').format(new Date());
+        images.save(img, DEBUG_DIR + ts + '_menumiss_' + label + '.png');
+        img.recycle();
+    } catch (e) {
+        log('保存点空调试截图失败: ' + e);
     }
-    
-    // 2. 点击中心地
-    click(clickX, clickY);
-    
-    // 3. 高频扫描检测弹窗
-    var elapsed = 0;
-    while (elapsed < 3000) {
-        sleep(200);
-        elapsed += 200;
-        var imgNow = safeCaptureScreen();
-        if (imgNow) {
-            if (hasMenuPopped(imgNow)) {
+}
+
+// 点击中心地块、确认菜单真的弹出的重试策略：
+// 前5次用原始Y坐标点；5次都不中的话，依次改用 Y+5 / Y-5... 这几个上下偏移坐标再点；
+// 全部9次都不中就判定卡死，保存最后一张截图后停止脚本，交给人工检查。
+var MENU_CLICK_Y_OFFSETS = [0, 0, 0, 0, 0, 5, 10, -5, -10];
+
+// stepLabel 仅用于日志/调试截图命名，便于事后区分是 plant/harvest/freeButton 哪个阶段点空了
+function clickAndAwaitMenu(clickX, clickY, stepLabel) {
+    var maxAttempts = MENU_CLICK_Y_OFFSETS.length;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        var yOffset = MENU_CLICK_Y_OFFSETS[attempt - 1];
+        var useY = clickY + yOffset;
+        var offsetLabel = yOffset === 0 ? '' : (' (Y偏移' + (yOffset > 0 ? '+' : '') + yOffset + ')');
+
+        // 第2次及以后的重试：先点一下安全空白处，清掉可能因为上一次点击被判定成
+        // "关闭"而不是"打开"所残留的气泡/弹窗状态，避免陷入开-关互相抵消的死循环
+        if (attempt > 1) {
+            click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+            pausableSleep(300);
+        }
+        // 1. 点之前先记录底图的颜色
+        var imgRef = safeCaptureScreen();
+        if (imgRef) {
+            menuRefColors = getRegionColorFingerprint(imgRef);
+            imgRef.recycle();
+        }
+
+        // 2. 点击中心地（第6次起会带上下偏移）
+        click(clickX, useY);
+
+        // 3. 高频扫描检测弹窗
+        var elapsed = 0;
+        var popped = false;
+        while (elapsed < 3000) {
+            pausableSleep(200);
+            elapsed += 200;
+            renewLock();
+            var imgNow = safeCaptureScreen();
+            if (imgNow) {
+                if (hasMenuPopped(imgNow)) {
+                    imgNow.recycle();
+                    popped = true;
+                    break;
+                }
                 imgNow.recycle();
-                // 4. 【极度重要】检测到菜单弹出后，必须等 350 毫秒让动画播完定型，否则会脱手！
-                sleep(350); 
-                return true;
             }
-            imgNow.recycle();
+        }
+        if (popped) {
+            // 4. 【极度重要】检测到菜单弹出后，必须等 350 毫秒让动画播完定型，否则会脱手！
+            pausableSleep(350);
+            if (attempt > 1) {
+                log('[clickAndAwaitMenu] ' + (stepLabel || '') + ' 第' + attempt + '次点击' + offsetLabel + '后菜单成功弹出，继续流程');
+            }
+            return true;
+        }
+        // 3秒内一直没检测到菜单弹出：判定这次点击大概率"点空"了（触摸没生效/被吞/被残留弹窗吃掉）。
+        // 以前这里是直接放弃、继续往下走，导致后面 dragFarmLoop 在没有菜单的情况下瞎抓一通，
+        // 画面被甩到别处，最终触发三图校验失败而停止脚本。现在改成重试，5次原坐标不行就
+        // 换上下偏移坐标再试。
+        log('[clickAndAwaitMenu] ' + (stepLabel || '') + ' 第' + attempt + '次点击' + offsetLabel + '后3秒内未检测到菜单弹出（疑似点空/被吞），准备重试');
+        if (attempt === 5) {
+            toastLog('中心地菜单连续5次未弹出，开始尝试上下偏移坐标点击…');
         }
     }
-    return false;
+    // 5次原坐标 + 4次上下偏移，共9次全部失败：判定卡死，保存最后一张截图，然后停止脚本
+    log('[clickAndAwaitMenu] ' + (stepLabel || '') + ' 原坐标+上下偏移共' + maxAttempts + '次点击均未能弹出菜单，判定卡死，停止脚本');
+    toastLog('中心地菜单始终无法弹出（已尝试' + maxAttempts + '次，含上下偏移），脚本已停止，请手动检查');
+    saveMenuMissDebugImg((stepLabel || 'tap') + '_FINAL_giveup');
+    releaseLock();
+    exit();
 }
 
 // ================= 四个主阶段 =================
@@ -827,8 +882,8 @@ function plantAll() {
     riceQueued = false;
     lastPlantTime = Date.now();
     
-    // 调用新的检测逻辑（不需要传后面两个占位坐标了）
-    clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1]);
+    // 调用检测逻辑：点中心地并确认菜单真的弹出来了（点空会自动重试，见函数内部）
+    clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'plant');
     
     if (useRice) {
         toastLog("== 播种水稻 ==");
@@ -913,6 +968,11 @@ function waitUntilFree() {
         throw new PauseSignal();
     }
     setActionInProgress(true);
+    // 【已撤销】之前这里改成过 clickAndAwaitMenu 等"菜单弹出"再点免费，是错的：
+    // hasMenuPopped 检测的底部区域突变是种子/镰刀菜单专属的信号，免费按钮弹出来
+    // 用的不是这一套，等于在等一个永远不会满足的条件——镰刀本来就要免费催熟之后
+    // 才可能出现，结果会一直重试到9次上限，最后触发"放弃退出"，把整个脚本杀掉。
+    // 改回最初的直接点击，不做菜单检测。
     click(CONFIG.targetTile[0], CONFIG.targetTile[1]);
     sleep(600);
     click(CONFIG.freeButtonPos[0], CONFIG.freeButtonPos[1]);
@@ -963,8 +1023,8 @@ function harvestAll() {
     CTRL.currentPhase = 'harvest';
     lastHarvestWasRice = isRiceRound;
     
-    // 调用新的检测逻辑（不需要传后面两个占位坐标了）
-    clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1]);
+    // 调用检测逻辑：点中心地并确认菜单真的弹出来了（点空会自动重试，见函数内部）
+    clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'harvest');
     
     dragFarmLoop(isRiceRound ? "riceSickle" : "sickle");
     pausableSleep(500);
@@ -1572,4 +1632,3 @@ while (true) {
         }
     }
 }
-
