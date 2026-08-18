@@ -11,8 +11,8 @@ var PANEL = {
     WHEAT_COOLDOWN_SEC: 63,   // 小麦冷却秒数
     RICE_COOLDOWN_SEC: 243,   // 水稻冷却秒数
     RICE_EVERY_N_CHICKEN: 3,  // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
-    FACTORY_FEED_PULLS: 4,    // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认3，对应鸡饲料x4
-    CHOP_FEED_PULLS: 6,       // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
+    FACTORY_FEED_PULLS: 4,    // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认4，对应鸡饲料x16（有足够仓储余量的情况下可以为第二天的三鸡场增加供应，为制作羊饲料提供时间。空间紧张的话改为3）
+    CHOP_FEED_PULLS: 6,       // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x12
     CHICKEN_ENABLED: 1,       // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
     RANCH_ENABLED: 1          // 1=开启马场流程，0=关闭
 };
