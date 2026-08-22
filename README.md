@@ -27,7 +27,7 @@ V3.0稳定版更新：修改了检测镰刀的抓取逻辑，确保网络波动�
 <img width="1299" height="719" alt="76a3fd8136dd2af0d68f4cf5ffec1849" src="https://github.com/user-attachments/assets/56d27f6d-b130-4ce8-9ac8-2ccc9d706ae6" />
 <img width="1340" height="714" alt="2e217ab6a7249aa4b54223cc2d6c6cb1" src="https://github.com/user-attachments/assets/2b80a654-3149-4d1e-86a8-cf99f9ca5137" />
 
-防掉线版布告栏位置：
+防掉线版布告栏位置（三气泡同线）：
 <img width="2412" height="1080" alt="71482bbf9f04184c8e4ba29570f6a08a" src="https://github.com/user-attachments/assets/11cb3f20-d568-4506-ac99-9f06da747ff4" />
 异常弹窗：
 <img width="2412" height="1080" alt="4edeec62893c28d6c14ca66fbde39076" src="https://github.com/user-attachments/assets/6c969053-7c88-470a-9776-3b7edcb421d8" />
