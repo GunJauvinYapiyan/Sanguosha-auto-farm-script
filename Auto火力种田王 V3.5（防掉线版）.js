@@ -868,9 +868,6 @@ function collectStationGoods() {
     }    
     click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
     sleepWithHeartbeat(500);
-    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]); // 避免元宝界面弹出
-    sleepWithHeartbeat(500);
-    
     log('[驿站] 收货流程完成');
     stationGoodsPending = false;
 }
