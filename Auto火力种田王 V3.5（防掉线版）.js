@@ -1,19 +1,21 @@
-﻿// Auto火力种田王 V3.5（防掉线版）
+// Auto火力种田王 V3.5（防掉线版）
+// 提示：请将悬浮窗置于左上人物名片处，不要放太靠左上角，会遮挡水域影响驿站定位检测。
 
 auto.waitFor();
 floaty.closeAll();
 
 // ============================================================
-// ============ 控制面板：改这7个数就行，下面自动变化 ============
+// ============ 控制面板：改这8个数就行，下面自动变化 ============
 // ============================================================
 var PANEL = {
-    WHEAT_COOLDOWN_SEC: 63,   // 小麦冷却秒数
-    RICE_COOLDOWN_SEC: 243,   // 水稻冷却秒数
-    RICE_EVERY_N_CHICKEN: 3,  // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
-    FACTORY_FEED_PULLS: 5,    // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认5，对应鸡饲料x2
-    CHOP_FEED_PULLS: 6,       // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
-    CHICKEN_ENABLED: 1,       // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
-    RANCH_ENABLED: 1          // 1=开启马场流程，0=关闭
+    WHEAT_COOLDOWN_SEC: 63,        // 小麦冷却秒数
+    RICE_COOLDOWN_SEC: 243,        // 水稻冷却秒数
+    RICE_EVERY_N_CHICKEN: 3,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
+    FACTORY_FEED_PULLS: 5,         // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认5，对应鸡饲料x2
+    CHOP_FEED_PULLS: 6,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
+    CHICKEN_ENABLED: 1,            // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
+    RANCH_ENABLED: 1,              // 1=开启马场流程，0=关闭
+    STATION_LOAD_ENABLED: 0        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
 };
 
 // ================= 调试截图目录 =================
@@ -46,7 +48,7 @@ function acquireLock() {
     return true;
 }
 function renewLock() { lockStorage.put('heartbeat', Date.now()); }
-function releaseLock() { lockStorage.put('heartbeat', 0); }
+function releaseLock() { lockStorage.put('heartbeat', 0); 
 function sleepWithHeartbeat(ms) {
     var remain = ms, chunk = 5000;
     while (remain > 0) {
@@ -54,6 +56,9 @@ function sleepWithHeartbeat(ms) {
         sleep(t);
         remain -= t;
         renewLock();
+        if (CTRL.paused) {
+            throw new PauseSignal();
+        }
     }
 }
 if (!acquireLock()) { exit(); }
@@ -194,6 +199,7 @@ var MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES = 3;
 var chickenPendingRound = false;
 var ranchPendingRound = false;
 var bubbleDetectSuspended = false;
+var stationGoodsPending = false;
 
 // ================= 悬浮控制/暂停状态 =================
 var CTRL = {
@@ -335,6 +341,27 @@ function regionAvgColor(img, region) {
 function regionAvgBrightness(img, region) {
     var avg = regionAvgColor(img, region);
     return (avg[0] + avg[1] + avg[2]) / 3;
+}
+// 在 (cx,cy) 周围 ±radius 的方形区域内按 step 采样，只要有任意一个像素与
+// targetColor 的差值在 tolerance 以内就算命中。用于检测小图标/小色块（驿站
+// 出货绿点、驿站画面左上角水色等），比整体求均值更适合"小范围特征色"场景。
+function regionHasColorNear(img, cx, cy, radius, targetColor, tolerance, step) {
+    step = step || 5;
+    var w = img.getWidth(), h = img.getHeight();
+    for (var dx = -radius; dx <= radius; dx += step) {
+        for (var dy = -radius; dy <= radius; dy += step) {
+            var px = cx + dx, py = cy + dy;
+            if (px < 0 || px >= w || py < 0 || py >= h) continue;
+            var c = images.pixel(img, px, py);
+            var diff = Math.max(
+                Math.abs(colors.red(c) - targetColor[0]),
+                Math.abs(colors.green(c) - targetColor[1]),
+                Math.abs(colors.blue(c) - targetColor[2])
+            );
+            if (diff <= tolerance) return true;
+        }
+    }
+    return false;
 }
 
 // ============================================================
@@ -804,6 +831,75 @@ function checkAndRunRanchTasks() {
 }
 
 // ============================================================
+// ============ 驿站：出货检测 + 自动收货 + 落地驿站画面兜底 ============
+// ============================================================
+CONFIG.stationGoodsCheckPoint = [2067, 910];   // 驿站出货绿点检测坐标
+CONFIG.stationGoodsColor = [100, 166, 65];
+CONFIG.stationGoodsColorTolerance = 25;
+CONFIG.stationIcon = [2020, 965];
+CONFIG.stationHarvestBtn = [2070, 975];
+CONFIG.stationLoadBtn = [2070, 785];
+CONFIG.stationScreenCheckPoint = [75, 115];    // 驿站水域检测
+CONFIG.stationScreenColor = [96, 196, 196];
+CONFIG.stationScreenColorTolerance = 25;
+
+function checkStationHasGoods(img) {
+    return regionHasColorNear(img, CONFIG.stationGoodsCheckPoint[0], CONFIG.stationGoodsCheckPoint[1], 15, CONFIG.stationGoodsColor, CONFIG.stationGoodsColorTolerance, 5);
+}
+
+function isOnStationScreen(img) {
+    return regionHasColorNear(img, CONFIG.stationScreenCheckPoint[0], CONFIG.stationScreenCheckPoint[1], 15, CONFIG.stationScreenColor, CONFIG.stationScreenColorTolerance, 5);
+}
+
+// 驿站收货流程：点驿站图标 -> 等3秒 -> 点收获 -> 等3秒 -> [可选，由
+// PANEL.STATION_LOAD_ENABLED 控制]点装载 -> 等3秒 -> 双击SAFE_CLOSE退出。
+function collectStationGoods() {
+    log('[驿站] 开始收货流程');
+    click(CONFIG.stationIcon[0], CONFIG.stationIcon[1]);
+    sleepWithHeartbeat(3000); 
+    click(CONFIG.stationHarvestBtn[0], CONFIG.stationHarvestBtn[1]);
+    sleepWithHeartbeat(3000);
+    if (PANEL.STATION_LOAD_ENABLED) {
+        click(CONFIG.stationLoadBtn[0], CONFIG.stationLoadBtn[1]);
+        sleepWithHeartbeat(3000); 
+        log('[驿站] 已点击装载（PANEL.STATION_LOAD_ENABLED=1）');
+    } else {
+        log('[驿站] 跳过装载（PANEL.STATION_LOAD_ENABLED=0）');
+    }    
+    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    sleepWithHeartbeat(500);
+    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]); // 避免元宝界面弹出
+    sleepWithHeartbeat(500);
+    
+    log('[驿站] 收货流程完成');
+    stationGoodsPending = false;
+}
+
+
+// 每次断线重连后、正式点布告栏回中之前调用：检测是否落在了驿站画面而不是
+// 农场画面（布告栏点不到）——命中的话走一遍驿站收货流程 -> 点右上角退出
+// （复用不设上限的偏移退出逻辑）-> 确认回到大厅 -> 重新进入农场 -> 再检测
+// 一次，直到不再命中才返回，继续正常回中。
+function handleStationScreenIfPresent() {
+    while (true) {
+        var img = safeCaptureScreen();
+        if (!img) return;
+        var onStation = isOnStationScreen(img);
+        img.recycle();
+        if (!onStation) return;
+
+        log('[驿站] 检测到重连后落在了驿站画面（布告栏点不到），先走一遍驿站收货流程');
+        collectStationGoods();
+
+        log('[驿站] 收货完毕，点右上角退出，确认回到大厅后重新进入农场');
+        var baseline = captureRegionBaseline(CONFIG.mainLobbyCheckRegion);
+        exitToLobbyForDrift(baseline);
+        reenterFarmFromLobby();
+        // 循环回到顶部再检测一次驿站画面特征色，直到不再命中才返回
+    }
+}
+
+// ============================================================
 // ============ 服务器卡死/画面偏移 自动重连恢复 (FreezeRecovery) ============
 // ============================================================
 CONFIG.exitGameBtn = [2222, 60];                          // 游戏内右上角固定退出按钮
@@ -952,6 +1048,10 @@ function clickReconnectAndConfirm(baseline) {
 }
 
 function recenterAndDetectState() {
+    // 重连后有时会被直接甩到驿站画面，而不是农场画面——这时布告栏根本点不到。
+    // 回中前先在这里循环检测+处理，直到确认不在驿站画面，再继续走原来的回中流程。
+    handleStationScreenIfPresent();
+
     log('[FreezeRecovery] 点击布告栏回中按钮');
     click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
     sleepWithHeartbeat(5000);
@@ -1040,6 +1140,7 @@ function recenterAndDetectState() {
         : '[FreezeRecovery] 回中比对未能确认一致，已用最新截图刷新参考图，继续后续流程');
     log('[FreezeRecovery] 回中完成，菜单已打开，统一接收割流程');
     return { mode: 'harvest', menuAlreadyOpen: true };
+}
 
 function handleFreezeRecovery(baseline) {
     log('[FreezeRecovery] (卡死) Phase1开始：最多3轮"拖屏+点退出"，每轮结束后检测大厅/断线弹窗/偏移');
@@ -1174,12 +1275,6 @@ function saveMenuMissDebugImg(label) {
     }
 }
 
-// 只保留原坐标重试5次（上下偏移坐标实测基本无效，已去掉）。5次都不中的话，
-// 判定为服务器卡死，交给自动重连恢复流程（'freeze' 类型）。
-// ★ 内部全部用 sleep 而不是 pausableSleep：这是一段"点击->等菜单弹出->350ms
-// 定型"的原子操作，中途被暂停信号打断会导致状态不完整，所以这里故意不响应
-// 暂停（最坏情况下暂停按钮会有几秒到十几秒延迟才生效，换来的是这段动作不会
-// 被腰斩）。
 var CENTER_CLICK_RETRY_COUNT = 5;
 
 function clickAndAwaitMenu(clickX, clickY, stepLabel) {
@@ -1415,6 +1510,14 @@ function harvestAll(menuAlreadyOpen) {
             bubbleDetectSuspended = false;
             log('本轮收割完整完成，未再次爆仓，下一轮恢复鸡场/马场气泡检测');
         }
+        var imgStation = safeCaptureScreen();
+        if (imgStation) {
+            if (checkStationHasGoods(imgStation)) {
+                stationGoodsPending = true;
+                log('[驿站] 收割完毕检测到驿站出货绿点，先记下来，等这一轮种植/卖货/气泡检测都走完后再去处理');
+            }
+            imgStation.recycle();
+        }
         return;
     }
     if (result === 'warehouseFull') {
@@ -1597,6 +1700,11 @@ function syncSettingsPanelToState() {
         setToggleOff(ctrlWin.ranchTgl);
         setRowVisible(ctrlWin.rp1Row, false);
     }
+    if (PANEL.STATION_LOAD_ENABLED) {
+        setToggleOn(ctrlWin.stationLoadTgl);
+    } else {
+        setToggleOff(ctrlWin.stationLoadTgl);
+    }
 }
 function showResumeChoiceDialog() {
     var actionClicked = null;
@@ -1664,6 +1772,10 @@ function createControlPanel() {
                     <text id="rp1Minus" text=" − " textColor="#FFFFFF" textSize="12sp" bg="#44FFFFFF" padding="5" gravity="center"/>
                     <text id="rp1Val" text="6" textColor="#FFFFFF" textSize="12sp" w="24" gravity="center"/>
                     <text id="rp1Plus" text=" + " textColor="#FFFFFF" textSize="12sp" bg="#44FFFFFF" padding="5" gravity="center"/>
+                </horizontal>
+                <horizontal w="match_parent" h="30" gravity="center_vertical" marginTop="3">
+                    <text text="驿站装载" textColor="#E0E0E0" textSize="12sp" w="0" layout_weight="1" gravity="left|center_vertical"/>
+                    <text id="stationLoadTgl" text=" 关 " textColor="#FFFFFF" textSize="11sp" bg="#666666" padding="8" gravity="center"/>
                 </horizontal>
             </vertical>
         </vertical>
@@ -1855,6 +1967,17 @@ function createControlPanel() {
             ctrlWin.rp1Val.post(function () { ctrlWin.rp1Val.setText("" + PANEL.CHOP_FEED_PULLS); });
         }
     });
+    ctrlWin.stationLoadTgl.click(function () {
+        if (PANEL.STATION_LOAD_ENABLED) {
+            PANEL.STATION_LOAD_ENABLED = 0;
+            setToggleOff(ctrlWin.stationLoadTgl);
+            log("驿站装载已关闭");
+        } else {
+            PANEL.STATION_LOAD_ENABLED = 1;
+            setToggleOn(ctrlWin.stationLoadTgl);
+            log("驿站装载已开启");
+        }
+    });
     syncSettingsPanelToState();
 }
 // ================= 启动流程 =================
@@ -2007,6 +2130,11 @@ while (true) {
             } else {
                 checkAndRunFarmTasks();
                 checkAndRunRanchTasks();
+            }
+            // 种植/卖货/气泡检测都走完了，这时如果上一轮收割后记下了驿站
+            // 出货，统一在这里去处理，不打断前面的正常流程。
+            if (stationGoodsPending) {
+                collectStationGoods();
             }
             var midResult = DriftGuard.midFlowRecheck();
             if (midResult === 'drift') {
