@@ -48,7 +48,7 @@ function acquireLock() {
     return true;
 }
 function renewLock() { lockStorage.put('heartbeat', Date.now()); }
-function releaseLock() { lockStorage.put('heartbeat', 0); 
+function releaseLock() { lockStorage.put('heartbeat', 0); }
 function sleepWithHeartbeat(ms) {
     var remain = ms, chunk = 5000;
     while (remain > 0) {
