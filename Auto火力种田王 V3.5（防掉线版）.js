@@ -15,7 +15,9 @@ var PANEL = {
     CHOP_FEED_PULLS: 6,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
     CHICKEN_ENABLED: 1,            // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
     RANCH_ENABLED: 1,              // 1=开启马场流程，0=关闭
-    STATION_LOAD_ENABLED: 0        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
+    STATION_LOAD_ENABLED: 0,        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
+    LOBBY_ENTER_LIST_BTN: [2250, 995], // 进列表的坐标
+    LOBBY_ENTER_FARM_BTN: [1535, 290]  // 进农场的坐标
 };
 
 // ================= 调试截图目录 =================
@@ -910,8 +912,8 @@ CONFIG.disconnectDialogCheckRegion = [900, 300, 600, 100]; // 断线弹窗区域
 CONFIG.disconnectDialogUniformTolerance = 25;
 CONFIG.disconnectDialogMinBrightness = 200;
 CONFIG.disconnectDialogReconnectBtn = [1380, 670];        // 弹窗右边"重新连接"按钮：直接重连进游戏，跳过大厅画面
-CONFIG.lobbyEnterListBtn = [1575, 666];                   // 大厅里点这里进入"进行中"列表（偏移场景走大厅时用）
-CONFIG.lobbyEnterFarmBtn = [550, 550];                    // "进行中"列表里点"屯田"卡片进入农场
+CONFIG.lobbyEnterListBtn = PANEL.LOBBY_ENTER_LIST_BTN;    // 读取顶部面板坐标
+CONFIG.lobbyEnterFarmBtn = PANEL.LOBBY_ENTER_FARM_BTN;    // 读取顶部面板坐标
 CONFIG.noticeBoardRecenterBtn = [1108, 1028];             // 布告栏图标：点一下把镜头固定拉回基准位置
 CONFIG.sickleMenuRegion = [1100, 985, 240, 30];           // 与 hasMenuPopped 共用的底部种子/镰刀菜单突变检测区域
 CONFIG.sickleMenuRegionTolerance = 15;
