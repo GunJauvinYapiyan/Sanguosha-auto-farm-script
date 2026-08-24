@@ -999,12 +999,40 @@ function exitToLobbyForDrift() {
     }
 }
 
+// 从大厅重新进入农场。原来是"点开列表 -> 等10秒 -> 点屯田卡片 -> 等10秒"
+// 两次点击点完就默认成功，但实测发现这两次点击有时会被"吞"掉（比如上一步
+// 画面还没完全稳定），导致游戏其实还停在主页，后面所有农场坐标（布告栏/
+// 中心地）全部点空，只能一直靠 clickAndAwaitMenu 的重试兜圈子。这里加一层
+// 验证：两次点击都点完后，再检测一次是否仍然命中主页特征——命中就说明这次
+// 没能真正进去，直接原样重新点一遍"点列表->点屯田卡片"两连击重试，不设
+// 上限，直到主页特征消失为止（和 exitToLobbyForDrift"总能出去"的思路一致）。
 function reenterFarmFromLobby() {
     log('[FreezeRecovery] 从大厅重新进入农场');
-    click(CONFIG.lobbyEnterListBtn[0], CONFIG.lobbyEnterListBtn[1]);
-    sleepWithHeartbeat(10000);
-    click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
-    sleepWithHeartbeat(10000);
+    var attempt = 0;
+    while (true) {
+        attempt++;
+        click(CONFIG.lobbyEnterListBtn[0], CONFIG.lobbyEnterListBtn[1]);
+        sleepWithHeartbeat(10000);
+        click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+        sleepWithHeartbeat(10000);
+
+        var img = safeCaptureScreen();
+        var stillHome = false;
+        if (img) {
+            stillHome = checkIsHomeSingleFrame(img);
+            img.recycle();
+        }
+        if (!stillHome) {
+            if (attempt > 1) {
+                log('[FreezeRecovery] 从大厅进入农场第' + attempt + '次尝试后主页特征已消失，判定进入成功');
+            }
+            return;
+        }
+        log('[FreezeRecovery] 从大厅进入农场第' + attempt + '次尝试后仍检测到主页特征（点击可能被吞/没生效），重试');
+        if (attempt % 3 === 0) {
+            toastLog('从大厅进入农场已重试' + attempt + '次仍未成功，继续重试中…');
+        }
+    }
 }
 
 function clickReconnectAndConfirm() {
