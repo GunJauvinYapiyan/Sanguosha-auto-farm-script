@@ -1253,7 +1253,6 @@ function handleFreezeRecovery() {
     }
 }
 
-// 【修正：去掉了多余重复的括号和日志】
 function recoverFromFreeze(reasonLabel, kind) {
     toastLog('触发自动重连恢复（' + reasonLabel + '），请勿操作手机');
     log('[FreezeRecovery] ===== 开始恢复流程，原因: ' + reasonLabel + '（类型: ' + kind + '）=====');
@@ -1365,6 +1364,24 @@ function clickAndAwaitMenu(clickX, clickY, stepLabel) {
     throw new RecoveredCycleSignal(result.mode, result.menuAlreadyOpen);
 }
 
+// ============================================================
+// ============ 连续"仓库已满"误判兜底：统一计数 + 满3次整体重置 ============
+// ============================================================
+function handleWarehouseFullOrFallback(reasonLabel) {
+    consecutiveWarehouseFullRecoveries++;
+    if (consecutiveWarehouseFullRecoveries >= MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES) {
+        toastLog('仓库已满挽救连续触发' + consecutiveWarehouseFullRecoveries + '次（' + reasonLabel + '），怀疑是误触了远处建筑弹窗，改为整体重置：退出游戏重进');
+        log('[WarehouseFullFallback] 连续' + consecutiveWarehouseFullRecoveries + '次疑似爆仓（触发环节: ' + reasonLabel + '），触发兜底：清场退出重进，不再继续按仓库已满的固定坐标点');
+        consecutiveWarehouseFullRecoveries = 0;
+        click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+        sleepWithHeartbeat(500);
+        var result = recoverFromFreeze('连续' + MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES + '次疑似爆仓误判(' + reasonLabel + ')', 'drift');
+        throw new RecoveredCycleSignal(result.mode, result.menuAlreadyOpen);
+    }
+    toastLog('仓库已满弹窗，自动挽救 (第' + consecutiveWarehouseFullRecoveries + '次，' + reasonLabel + ')');
+    handleWarehouseFullDuringHarvest();
+}
+
 // ================= 四个主阶段 =================
 function plantAll(menuAlreadyOpen) {
     CTRL.currentPhase = 'plant';
@@ -1391,7 +1408,7 @@ function plantAll(menuAlreadyOpen) {
     var driftResult = DriftGuard.softCheck('plant');
     if (driftResult === 'warehouseFull') {
         log('种植阶段检测到仓库已满弹窗，进入挽救流程');
-        handleWarehouseFullDuringHarvest();
+        handleWarehouseFullOrFallback('plant-softCheck');
     } else if (driftResult === 'suspected') {
         log('[plantAll] softCheck 报偏移嫌疑，等1秒后立即做完整三图校验确认');
         pausableSleep(1000);
@@ -1402,7 +1419,7 @@ function plantAll(menuAlreadyOpen) {
             var result = recoverFromFreeze('plant种植后立即确认偏移', 'drift');
             throw new RecoveredCycleSignal(result.mode, result.menuAlreadyOpen);
         } else if (confirmResult === 'warehouseFull') {
-            handleWarehouseFullDuringHarvest();
+            handleWarehouseFullOrFallback('plant-immediate');
         } else {
             log('[plantAll] 三图校验未确认偏移（误报），继续正常流程');
         }
@@ -1551,13 +1568,7 @@ function harvestAll(menuAlreadyOpen) {
         return;
     }
     if (result === 'warehouseFull') {
-        consecutiveWarehouseFullRecoveries++;
-        if (consecutiveWarehouseFullRecoveries > MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES) {
-            toastLog('仓库已满挽救连续触发太多次，脚本停止');
-            releaseLock(); exit();
-        }
-        toastLog('仓库已满弹窗，自动挽救 (第' + consecutiveWarehouseFullRecoveries + '次)');
-        handleWarehouseFullDuringHarvest();
+        handleWarehouseFullOrFallback('harvest');
         return;
     }
     toastLog('三图校验+交叉比对确认画面偏移，自动重连恢复中（不再停止脚本）…');
@@ -2172,7 +2183,7 @@ while (true) {
                 var midDetection = recoverFromFreeze('midflow中间补测确认偏移', 'drift');
                 throw new RecoveredCycleSignal(midDetection.mode, midDetection.menuAlreadyOpen);
             } else if (midResult === 'warehouseFull') {
-                handleWarehouseFullDuringHarvest();
+                handleWarehouseFullOrFallback('midflow');
             }
             waitUntilFree();
             harvestAll(false);
