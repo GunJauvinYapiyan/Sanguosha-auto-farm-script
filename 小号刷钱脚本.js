@@ -10,9 +10,9 @@ floaty.closeAll();
 var PANEL = {
     WHEAT_COOLDOWN_SEC: 60,        // 小麦冷却秒数
     RICE_COOLDOWN_SEC: 240,        // 水稻冷却秒数
-    RICE_EVERY_N_CHICKEN: 3,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
+    RICE_EVERY_N_CHICKEN: 2,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
     FACTORY_FEED_PULLS: 3,         // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认5，对应鸡饲料x2
-    CHOP_FEED_PULLS: 1,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
+    CHOP_FEED_PULLS: 1,            // 下面糕坊的拖拽次数，默认1，对应糯米糕x1
     CHICKEN_ENABLED: 1,            // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
     RANCH_ENABLED: 1,              // 1=开启马场流程，0=关闭
     STATION_LOAD_ENABLED: 0,        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
