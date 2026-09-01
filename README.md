@@ -37,7 +37,7 @@ V3.0稳定版更新：修改了检测镰刀的抓取逻辑，确保网络波动�
 摆位参考：
 <img width="1299" height="719" alt="76a3fd8136dd2af0d68f4cf5ffec1849" src="https://github.com/user-attachments/assets/56d27f6d-b130-4ce8-9ac8-2ccc9d706ae6" />
 <img width="1340" height="714" alt="2e217ab6a7249aa4b54223cc2d6c6cb1" src="https://github.com/user-attachments/assets/2b80a654-3149-4d1e-86a8-cf99f9ca5137" />
-小号摆位：
+小号摆位（小麦种植位为过渡田地）：
 <img width="2412" height="1080" alt="bce6f48bec41757b850f63dac016b165" src="https://github.com/user-attachments/assets/55736a13-1a47-409a-ae18-b51a944d019b" />
 
 防掉线版布告栏位置（三气泡同线）：
