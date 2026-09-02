@@ -1,18 +1,18 @@
-// Auto火力种田王 V3.5（防掉线版 - 无外圈副本）
+// Auto火力种田王 V3.5（无外圈副本）
 // 提示：请将悬浮窗置于左上人物名片处，不要放太靠左上角，会遮挡水域影响驿站定位检测；也不要放在会遮挡主页界面金属色UI的地方，会影响主页检测。
 
 auto.waitFor();
 floaty.closeAll();
 
 // ============================================================
-// ============ 控制面板：改这8个数就行，下面自动变化 ============
+// ============ 控制面板：改这10个数就行，下面自动变化 ============
 // ============================================================
 var PANEL = {
     WHEAT_COOLDOWN_SEC: 60,        // 小麦冷却秒数
     RICE_COOLDOWN_SEC: 240,        // 水稻冷却秒数
     RICE_EVERY_N_CHICKEN: 2,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
     FACTORY_FEED_PULLS: 3,         // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认5，对应鸡饲料x2
-    CHOP_FEED_PULLS: 1,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
+    CHOP_FEED_PULLS: 1,            // 下面糕坊的拖拽次数，默认1，对应糯米糕x1
     CHICKEN_ENABLED: 1,            // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
     RANCH_ENABLED: 1,              // 1=开启马场流程，0=关闭
     STATION_LOAD_ENABLED: 0,        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
@@ -323,7 +323,7 @@ function regionMatchesRefColor(img, region, refColor, tolerance) {
     var avgR = sumR / samples.length, avgG = sumG / samples.length, avgB = sumB / samples.length;
     var diff = Math.max(
         Math.abs(avgR - refColor[0]),
-        Math.abs(avgR - refColor[1]),
+        Math.abs(avgG - refColor[1]),
         Math.abs(avgB - refColor[2])
     );
     return diff <= tolerance;
@@ -343,6 +343,9 @@ function regionAvgBrightness(img, region) {
     var avg = regionAvgColor(img, region);
     return (avg[0] + avg[1] + avg[2]) / 3;
 }
+// 在 (cx,cy) 周围 ±radius 的方形区域内按 step 采样，只要有任意一个像素与
+// targetColor 的差值在 tolerance 以内就算命中。用于检测小图标/小色块（驿站
+// 出货绿点、驿站画面左上角水色等），比整体求均值更适合"小范围特征色"场景。
 function regionHasColorNear(img, cx, cy, radius, targetColor, tolerance, step) {
     step = step || 5;
     var w = img.getWidth(), h = img.getHeight();
@@ -506,7 +509,7 @@ var DriftGuard = {
         }
         this.saveDebugImg(img, '3_check1_' + stepName);
         img.recycle();
-        sleep(800);
+        sleep(800); // 原子校验动作，不用 pausableSleep
         var img2 = safeCaptureScreen();
         if (img2) {
             if (this.matchReference(img2)) {
@@ -617,7 +620,7 @@ function dragFarmLoop(key) {
     for (var r2 = 0; r2 < 4; r2++) points.push(CONFIG.CENTER_TILE);
 
     var l1 = CONFIG.LEFT_X, r1 = CONFIG.RIGHT_X, t1 = p.topY, b1 = p.bottomY;
-var l2 = l1 + p.shrink, r2x = r1 - p.shrink, t2 = t1 + p.shrink, b2 = (b1 - p.shrink) + 50;
+    var l2 = l1 + p.shrink, r2x = r1 - p.shrink, t2 = t1 + p.shrink, b2 = (b1 - p.shrink) + 50;
     var TL2 = [l2, t2], TR2 = [r2x, t2], BR2 = [r2x, b2], BL2 = [l2, b2];
 
     // 直接从中心进入第二圈起点
@@ -902,6 +905,9 @@ CONFIG.HOME_CHECK_REGIONS = {
 CONFIG.disconnectDialogCheckRegion = [900, 300, 600, 100];
 CONFIG.disconnectDialogUniformTolerance = 25;
 CONFIG.disconnectDialogMinBrightness = 200;
+// 根据截图加入色相/RGB约束，防止误认白云或亮色活动弹窗
+CONFIG.disconnectDialogColorRef = [251, 244, 216]; // 从 image_78f6d1.png 提取
+CONFIG.disconnectDialogColorTolerance = 30; // RGB色差容差
 CONFIG.disconnectDialogReconnectBtn = [1380, 670];
 CONFIG.lobbyEnterListBtn = PANEL.LOBBY_ENTER_LIST_BTN;
 CONFIG.lobbyEnterFarmBtn = PANEL.LOBBY_ENTER_FARM_BTN;
@@ -940,8 +946,24 @@ function checkIsHomeSingleFrame(img) {
 }
 
 function isDisconnectDialogShowing(img) {
+    // 首先判断是否为纯色块
     if (!isRegionUniform(img, CONFIG.disconnectDialogCheckRegion, CONFIG.disconnectDialogUniformTolerance)) return false;
-    return regionAvgBrightness(img, CONFIG.disconnectDialogCheckRegion) >= CONFIG.disconnectDialogMinBrightness;
+    
+    // 然后测亮度
+    var avgC = regionAvgColor(img, CONFIG.disconnectDialogCheckRegion);
+    var brightness = (avgC[0] + avgC[1] + avgC[2]) / 3;
+    if (brightness < CONFIG.disconnectDialogMinBrightness) return false;
+    
+    // 增加特定色相/RGB比对：必须符合米黄色的特征（R:251 G:244 B:216）
+    var diffR = Math.abs(avgC[0] - CONFIG.disconnectDialogColorRef[0]);
+    var diffG = Math.abs(avgC[1] - CONFIG.disconnectDialogColorRef[1]);
+    var diffB = Math.abs(avgC[2] - CONFIG.disconnectDialogColorRef[2]);
+    if (Math.max(diffR, diffG, diffB) > CONFIG.disconnectDialogColorTolerance) {
+        log('[FreezeRecovery] 拦截到伪装弹窗，RGB不符: ' + Math.round(avgC[0]) + ',' + Math.round(avgC[1]) + ',' + Math.round(avgC[2]));
+        return false;
+    }
+    
+    return true;
 }
 
 function randomDragScreen(durationMs) {
@@ -955,9 +977,9 @@ function randomDragScreen(durationMs) {
 }
 
 function exitToLobbyForDrift() {
-    log('[FreezeRecovery] (偏移) 开始点退出键，不设上限，直到确认回到大厅为止');
+    log('[FreezeRecovery] (偏移) 开始点退出键，上限5次...');
     var round = 0;
-    while (true) {
+    while (round < 5) {
         round++;
         renewLock();
         click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
@@ -976,7 +998,7 @@ function exitToLobbyForDrift() {
                 if (confirmed) {
                     log('[FreezeRecovery] (偏移) 拖屏复测成功，已确认回到大厅');
                     img.recycle();
-                    return;
+                    return true;
                 } else {
                     log('[FreezeRecovery] (偏移) 拖屏复测失败，判定为农场场景误判');
                 }
@@ -984,8 +1006,10 @@ function exitToLobbyForDrift() {
             img.recycle();
         }
         log('[FreezeRecovery] (偏移) 第' + round + '次点退出未生效（可能点到了建筑上，退出键没弹出），重试');
-        if (round % 10 === 0) toastLog('偏移恢复已尝试' + round + '次退出仍未成功，继续重试中…');
+        if (round % 5 === 0) toastLog('偏移恢复已尝试' + round + '次退出仍未成功，继续重试中…');
     }
+    log('[FreezeRecovery] (偏移) 连续5次退出失败，放弃主动尝试，转入被动等待');
+    return false;
 }
 
 function reenterFarmFromLobby() {
@@ -1133,7 +1157,14 @@ function recenterAndDetectState() {
                 log('[FreezeRecovery] 回中比对异常: ' + e);
             }
         }
-        DriftGuard.refreshReference(imgB);
+        
+        // 修复“认贼作父”的严重逻辑漏洞：只有真正回中成功时，才刷新参考图
+        if (recentered) {
+            DriftGuard.refreshReference(imgB);
+        } else {
+            log('[FreezeRecovery] 回中确认失败，拒绝污染参考图！');
+        }
+        
         try {
             var ts = new java.text.SimpleDateFormat('yyyyMMdd_HHmmss_SSS').format(new Date());
             images.save(imgB, DEBUG_DIR + ts + '_freeze_recenter_state_' + (sickleReady ? 'sickle' : 'notsickle') + '.png');
@@ -1144,55 +1175,62 @@ function recenterAndDetectState() {
 
     log(recentered
         ? '[FreezeRecovery] 回中确认成功（回中前后两次截图的参考区域一致）'
-        : '[FreezeRecovery] 回中比对未能确认一致，已用最新截图刷新参考图，继续后续流程');
+        : '[FreezeRecovery] 回中比对未能确认一致，继续后续流程');
     log('[FreezeRecovery] 回中完成，菜单已打开，统一接收割流程');
     return { mode: 'harvest', menuAlreadyOpen: true };
 }
 
-function handleFreezeRecovery() {
-    log('[FreezeRecovery] (卡死) Phase1开始...');
-    for (var i = 1; i <= 3; i++) {
-        randomDragScreen(300);
-        sleepWithHeartbeat(1000);
-        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
-        sleepWithHeartbeat(10000);
-
-        var img = safeCaptureScreen();
-        if (!img) continue;
-
-        if (checkIsHomeSingleFrame(img)) {
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：初测疑似回到大厅，拖屏复测...');
+function handleFreezeRecovery(skipPhase1) {
+    if (!skipPhase1) {
+        log('[FreezeRecovery] (卡死) Phase1开始...');
+        for (var i = 1; i <= 3; i++) {
             randomDragScreen(300);
             sleepWithHeartbeat(1000);
-            var imgConfirm = safeCaptureScreen();
-            var confirmed = imgConfirm ? checkIsHomeSingleFrame(imgConfirm) : false;
-            if (imgConfirm) imgConfirm.recycle();
-            
-            if (confirmed) {
-                img.recycle();
-                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测成功，✅ 确认回到大厅');
-                reenterFarmFromLobby();
-                return recenterAndDetectState();
-            } else {
-                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测失败，❌ 判定为农场误报');
+            click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+            sleepWithHeartbeat(10000);
+
+            var img = safeCaptureScreen();
+            if (!img) continue;
+
+            if (checkIsHomeSingleFrame(img)) {
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：初测疑似回到大厅，拖屏复测...');
+                randomDragScreen(300);
+                sleepWithHeartbeat(1000);
+                var imgConfirm = safeCaptureScreen();
+                var confirmed = imgConfirm ? checkIsHomeSingleFrame(imgConfirm) : false;
+                if (imgConfirm) imgConfirm.recycle();
+                
+                if (confirmed) {
+                    img.recycle();
+                    log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测成功，✅ 确认回到大厅');
+                    reenterFarmFromLobby();
+                    return recenterAndDetectState();
+                } else {
+                    log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测失败，❌ 判定为农场误报');
+                }
             }
-        }
 
-        if (isDisconnectDialogShowing(img)) {
+            if (isDisconnectDialogShowing(img)) {
+                img.recycle();
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：检测到断线弹窗！');
+                clickReconnectAndConfirm();
+                return recenterAndDetectState();
+            }
+
+            var stillMatchesRef = DriftGuard.matchReference(img);
             img.recycle();
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：检测到断线弹窗！');
-            clickReconnectAndConfirm();
-            return recenterAndDetectState();
-        }
-
-        var stillMatchesRef = DriftGuard.matchReference(img);
-        img.recycle();
-        if (!stillMatchesRef) {
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：画面已偏移，转入偏移恢复流程');
-            saveFreezeDebugImg('phase1_drift_round' + i);
-            exitToLobbyForDrift();
-            reenterFarmFromLobby();
-            return recenterAndDetectState();
+            if (!stillMatchesRef) {
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：画面已偏移，转入偏移恢复流程');
+                saveFreezeDebugImg('phase1_drift_round' + i);
+                var exitOk = exitToLobbyForDrift();
+                if (exitOk) {
+                    reenterFarmFromLobby();
+                    return recenterAndDetectState();
+                } else {
+                    log('[FreezeRecovery] (卡死) 偏移退出尝试失败，直接转入Phase 2');
+                    break; 
+                }
+            }
         }
     }
 
@@ -1229,7 +1267,10 @@ function handleFreezeRecovery() {
             }
         }
         img2.recycle();
-        log('[FreezeRecovery] (卡死) Phase2第' + waitRound + '轮：继续被动等待...');
+        
+        // 关键逻辑：如果截取到的既不是断线弹窗也不是大厅，说明卡死在别的界面，盲点一次右上角破局
+        log('[FreezeRecovery] (卡死) Phase2第' + waitRound + '轮：未检测到断线或大厅，盲点一次右上角...');
+        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
     }
 }
 
@@ -1240,11 +1281,16 @@ function recoverFromFreeze(reasonLabel, kind) {
 
     var detectionResult;
     if (kind === 'drift') {
-        exitToLobbyForDrift();
-        reenterFarmFromLobby();
-        detectionResult = recenterAndDetectState();
+        var exitOk = exitToLobbyForDrift();
+        if (exitOk) {
+            reenterFarmFromLobby();
+            detectionResult = recenterAndDetectState();
+        } else {
+            // 如果连续5次都没退出来，不要抛异常，而是强制转入带盲点的 Phase 2 死等流程
+            detectionResult = handleFreezeRecovery(true); 
+        }
     } else {
-        detectionResult = handleFreezeRecovery();
+        detectionResult = handleFreezeRecovery(false);
     }
 
     log('[FreezeRecovery] ===== 恢复流程完成，续接: ' + detectionResult.mode +
@@ -1253,7 +1299,7 @@ function recoverFromFreeze(reasonLabel, kind) {
     return detectionResult;
 }
 
-// ================= 菜单区域检测逻辑 =================
+// ================= 菜单区域检测逻辑 (区域突变检测 + 350ms防脱手缓冲 + 点空自动重试) =================
 var menuRefColors = null;
 
 function getRegionColorFingerprint(img) {
@@ -1345,7 +1391,7 @@ function clickAndAwaitMenu(clickX, clickY, stepLabel) {
 }
 
 // ============================================================
-// ============ 连续"仓库已满"误判兜底 ============
+// ============ 连续"仓库已满"误判兜底：统一计数 + 满3次整体重置 ============
 // ============================================================
 function handleWarehouseFullOrFallback(reasonLabel) {
     consecutiveWarehouseFullRecoveries++;
@@ -1591,7 +1637,6 @@ function handlePauseAndResume() {
         }
     }
 }
-
 // ================= 坐标校准（悬浮窗拖拽） =================
 function waitForLandscape() {
     if (device.width < device.height) {
@@ -1670,7 +1715,6 @@ function calibrateAndVerify(promptText) {
         toastLog("重新校准这个点");
     }
 }
-
 // ================= 悬浮控制面板 UI 辅助 =================
 function setToggleOn(view) {
     view.post(function () {
@@ -2002,7 +2046,6 @@ function createControlPanel() {
     });
     syncSettingsPanelToState();
 }
-
 // ================= 启动流程 =================
 try {
     var __testWin = floaty.window(<text text="."/>);
