@@ -1,14 +1,14 @@
-// Auto火力种田王 V3.5（防掉线版）
+// Auto火力种田王 V3.5beta版
 // 提示：请将悬浮窗置于左上人物名片处，不要放太靠左上角，会遮挡水域影响驿站定位检测；也不要放在会遮挡主页界面金属色UI的地方，会影响主页检测。
-// 仅改动马场回中方式。
 
 auto.waitFor();
 floaty.closeAll();
 
 // ============================================================
-// ============ 控制面板：改这8个数就行，下面自动变化 ============
+// ============ 控制面板：改这11个数就行，下面自动变化 ============
 // ============================================================
 var PANEL = {
+    POTION_STARTUP_PROMPT: 0,      // 0=关闭启动时的加速酒弹窗，1=开启（关闭后，仍可随时通过悬浮窗齿轮设置开启加速酒）
     WHEAT_COOLDOWN_SEC: 63,        // 小麦冷却秒数
     RICE_COOLDOWN_SEC: 243,        // 水稻冷却秒数
     RICE_EVERY_N_CHICKEN: 3,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
@@ -16,7 +16,7 @@ var PANEL = {
     CHOP_FEED_PULLS: 6,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
     CHICKEN_ENABLED: 1,            // 1=开启鸡场流程，0=关闭（关了的话水稻也不会触发种植）
     RANCH_ENABLED: 1,              // 1=开启马场流程，0=关闭
-    STATION_LOAD_ENABLED: 0,        // 1=驿站收货时顺带点装载，0=只收货不装载（直接装载可能会影响布告栏状态导致后续无法定位，请在物资充足，且不介意发糕或米酒酿大量消耗的前提下使用）
+    STATION_LOAD_ENABLED: 0,        // 1=驿站收货时顺带点装载，0=只收货不装载
     LOBBY_ENTER_LIST_BTN: [2250, 995], // 进列表的坐标
     LOBBY_ENTER_FARM_BTN: [1535, 290]  // 进农场的坐标
 };
@@ -611,6 +611,7 @@ function matchSteps(fromPt, toPt, nextSteps, nextDist) {
     if (nextDist <= 0) return 2;
     return Math.max(2, Math.round(d * nextSteps / nextDist));
 }
+
 function dragFarmLoop(key) {
     var p = PARAMS[key];
     var points = [];
@@ -775,6 +776,7 @@ function checkAndRunRanchTasks() {
     if (!img) return;
     var has_R1 = isBubblePresent(img, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
     var has_R2 = isBubblePresent(img, CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]);
+    var has_CHOP = isBubblePresent(img, CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); // ✅ 新增防误点判定
     img.recycle();
     log("马场气泡: R1=" + has_R1 + " R2=" + has_R2);
     if (has_R1 || has_R2) {
@@ -802,7 +804,7 @@ function checkAndRunRanchTasks() {
     if (shouldExecuteRanch) {
         if (has_R1) { click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400); }
         if (has_R2) { click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(400); }
-        click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(800);
+        if (has_CHOP) { click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(800); } // ✅ 有才点
         var SAFE = CONFIG.SAFE_CLOSE;
         pausableSleep(1000);
         click(CONFIG.build_R1[0], CONFIG.build_R1[1]); pausableSleep(1000);
@@ -826,10 +828,14 @@ function checkAndRunRanchTasks() {
             pullFeedSafe(CONFIG.chopFeedIcon[0], CONFIG.chopFeedIcon[1]);
         }
         click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        
+        // ================= 马场两步回中 =================
         click(971, 366);
         pausableSleep(3000);
         click(1742, 157);
         pausableSleep(1000);
+        // ===============================================
+
         needSellMilk = true;
     }
 }
@@ -837,13 +843,13 @@ function checkAndRunRanchTasks() {
 // ============================================================
 // ============ 驿站：出货检测 + 自动收货 + 落地驿站画面兜底 ============
 // ============================================================
-CONFIG.stationGoodsCheckPoint = [2067, 910];   // 驿站出货绿点检测坐标
+CONFIG.stationGoodsCheckPoint = [2067, 910];
 CONFIG.stationGoodsColor = [100, 166, 65];
 CONFIG.stationGoodsColorTolerance = 25;
 CONFIG.stationIcon = [2020, 965];
 CONFIG.stationHarvestBtn = [2070, 975];
 CONFIG.stationLoadBtn = [2070, 785];
-CONFIG.stationScreenCheckPoint = [75, 115];    // 驿站水域检测
+CONFIG.stationScreenCheckPoint = [75, 115];
 CONFIG.stationScreenColor = [96, 196, 196];
 CONFIG.stationScreenColorTolerance = 25;
 
@@ -855,8 +861,6 @@ function isOnStationScreen(img) {
     return regionHasColorNear(img, CONFIG.stationScreenCheckPoint[0], CONFIG.stationScreenCheckPoint[1], 15, CONFIG.stationScreenColor, CONFIG.stationScreenColorTolerance, 5);
 }
 
-// 驿站收货流程：点驿站图标 -> 等3秒 -> 点收获 -> 等3秒 -> [可选，由
-// PANEL.STATION_LOAD_ENABLED 控制]点装载 -> 等3秒 -> 双击SAFE_CLOSE退出。
 function collectStationGoods() {
     log('[驿站] 开始收货流程');
     click(CONFIG.stationIcon[0], CONFIG.stationIcon[1]);
@@ -876,10 +880,6 @@ function collectStationGoods() {
     stationGoodsPending = false;
 }
 
-// 每次断线重连后、正式点布告栏回中之前调用：检测是否落在了驿站画面而不是
-// 农场画面（布告栏点不到）——命中的话走一遍驿站收货流程 -> 点右上角退出
-// （复用不设上限的偏移退出逻辑）-> 确认回到大厅 -> 重新进入农场 -> 再检测
-// 一次，直到不再命中才返回，继续正常回中。
 function handleStationScreenIfPresent() {
     while (true) {
         var img = safeCaptureScreen();
@@ -894,7 +894,6 @@ function handleStationScreenIfPresent() {
         log('[驿站] 收货完毕，点右上角退出，确认回到大厅后重新进入农场');
         exitToLobbyForDrift();
         reenterFarmFromLobby();
-        // 循环回到顶部再检测一次驿站画面特征色，直到不再命中才返回
     }
 }
 
@@ -902,24 +901,27 @@ function handleStationScreenIfPresent() {
 // ============ 服务器卡死/画面偏移 自动重连恢复 (FreezeRecovery) ============
 // ============================================================
 
-CONFIG.exitGameBtn = [2222, 60];                          // 游戏内右上角固定退出按钮
-CONFIG.HOME_TARGET_COLOR = [162, 119, 64];        // 主页界面UI色值匹配
+CONFIG.exitGameBtn = [2222, 60];
+CONFIG.HOME_TARGET_COLOR = [162, 119, 64];
 CONFIG.HOME_TOLERANCE = 10;
 CONFIG.HOME_CHECK_REGIONS = {
     "右上区域": { rect: [1850, 20, 460, 65], minPixels: 1000 },
     "左侧区域": { rect: [110, 180, 100, 520], minPixels: 1000 },
     "底部区域": { rect: [1275, 945, 875, 90], minPixels: 3000 }
 };
-CONFIG.disconnectDialogCheckRegion = [900, 300, 600, 100]; // 断线弹窗区域 (900,300)-(1500,400)
+CONFIG.disconnectDialogCheckRegion = [900, 300, 600, 100];
 CONFIG.disconnectDialogUniformTolerance = 25;
 CONFIG.disconnectDialogMinBrightness = 200;
-CONFIG.disconnectDialogReconnectBtn = [1380, 670];        // 弹窗右边"重新连接"按钮：直接重连进游戏，跳过大厅画面
-CONFIG.lobbyEnterListBtn = PANEL.LOBBY_ENTER_LIST_BTN;    // 读取顶部面板坐标
-CONFIG.lobbyEnterFarmBtn = PANEL.LOBBY_ENTER_FARM_BTN;    // 读取顶部面板坐标
-CONFIG.noticeBoardRecenterBtn = [1108, 1028];             // 布告栏图标：点一下把镜头固定拉回基准位置
-CONFIG.sickleMenuRegion = [1100, 985, 240, 30];           // 与 hasMenuPopped 共用的底部种子/镰刀菜单突变检测区域
+// 加入色相/RGB约束，防止误认白云或亮色活动弹窗
+CONFIG.disconnectDialogColorRef = [251, 244, 216]; // 色相参考值
+CONFIG.disconnectDialogColorTolerance = 30; // RGB色差容差
+CONFIG.disconnectDialogReconnectBtn = [1380, 670];
+CONFIG.lobbyEnterListBtn = PANEL.LOBBY_ENTER_LIST_BTN;
+CONFIG.lobbyEnterFarmBtn = PANEL.LOBBY_ENTER_FARM_BTN;
+CONFIG.noticeBoardRecenterBtn = [1108, 1028];
+CONFIG.sickleMenuRegion = [1100, 985, 240, 30];
 CONFIG.sickleMenuRegionTolerance = 15;
-CONFIG.sickleStateRegion = [1160, 816, 120, 80];          // 镰刀图标附近区域：纯色命中=待收割；未命中=空地/杂色（需按实机截图校准）
+CONFIG.sickleStateRegion = [1160, 816, 120, 80];
 CONFIG.sickleStateTolerance = 18;
 
 function saveFreezeDebugImg(label) {
@@ -933,10 +935,6 @@ function saveFreezeDebugImg(label) {
         log('保存卡死调试截图失败: ' + e);
     }
 }
-
-// ============================================================
-// ============ 核心大厅检测与服务器卡死恢复 (FreezeRecovery) ============
-// ============================================================
 
 function checkIsHomeSingleFrame(img) {
     var matchCount = 0;
@@ -955,8 +953,23 @@ function checkIsHomeSingleFrame(img) {
 }
 
 function isDisconnectDialogShowing(img) {
+    // 检查纯度
     if (!isRegionUniform(img, CONFIG.disconnectDialogCheckRegion, CONFIG.disconnectDialogUniformTolerance)) return false;
-    return regionAvgBrightness(img, CONFIG.disconnectDialogCheckRegion) >= CONFIG.disconnectDialogMinBrightness;
+    
+    // 检查亮度
+    var avgC = regionAvgColor(img, CONFIG.disconnectDialogCheckRegion);
+    var brightness = (avgC[0] + avgC[1] + avgC[2]) / 3;
+    if (brightness < CONFIG.disconnectDialogMinBrightness) return false;
+    
+    // 检查RGB是否匹配米黄色约束
+    var diffR = Math.abs(avgC[0] - CONFIG.disconnectDialogColorRef[0]);
+    var diffG = Math.abs(avgC[1] - CONFIG.disconnectDialogColorRef[1]);
+    var diffB = Math.abs(avgC[2] - CONFIG.disconnectDialogColorRef[2]);
+    if (Math.max(diffR, diffG, diffB) > CONFIG.disconnectDialogColorTolerance) {
+        log('[FreezeRecovery] 拦截到伪装弹窗，RGB不符: ' + Math.round(avgC[0]) + ',' + Math.round(avgC[1]) + ',' + Math.round(avgC[2]));
+        return false;
+    }
+    return true;
 }
 
 function randomDragScreen(durationMs) {
@@ -970,9 +983,9 @@ function randomDragScreen(durationMs) {
 }
 
 function exitToLobbyForDrift() {
-    log('[FreezeRecovery] (偏移) 开始点退出键，不设上限，直到确认回到大厅为止');
+    log('[FreezeRecovery] (偏移) 开始点退出键，上限5次...');
     var round = 0;
-    while (true) {
+    while (round < 5) { // 限制上限5次
         round++;
         renewLock();
         click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
@@ -991,7 +1004,7 @@ function exitToLobbyForDrift() {
                 if (confirmed) {
                     log('[FreezeRecovery] (偏移) 拖屏复测成功，已确认回到大厅');
                     img.recycle();
-                    return;
+                    return true;
                 } else {
                     log('[FreezeRecovery] (偏移) 拖屏复测失败，判定为农场场景误判');
                 }
@@ -999,17 +1012,12 @@ function exitToLobbyForDrift() {
             img.recycle();
         }
         log('[FreezeRecovery] (偏移) 第' + round + '次点退出未生效（可能点到了建筑上，退出键没弹出），重试');
-        if (round % 10 === 0) toastLog('偏移恢复已尝试' + round + '次退出仍未成功，继续重试中…');
+        if (round % 5 === 0) toastLog('偏移恢复已尝试' + round + '次退出仍未成功，继续重试中…');
     }
+    log('[FreezeRecovery] (偏移) 连续5次退出失败，放弃主动尝试，转入被动等待');
+    return false;
 }
 
-// 从大厅重新进入农场。原来是"点开列表 -> 等10秒 -> 点屯田卡片 -> 等10秒"
-// 两次点击点完就默认成功，但实测发现这两次点击有时会被"吞"掉（比如上一步
-// 画面还没完全稳定），导致游戏其实还停在主页，后面所有农场坐标（布告栏/
-// 中心地）全部点空，只能一直靠 clickAndAwaitMenu 的重试兜圈子。这里加一层
-// 验证：两次点击都点完后，再检测一次是否仍然命中主页特征——命中就说明这次
-// 没能真正进去，直接原样重新点一遍"点列表->点屯田卡片"两连击重试，不设
-// 上限，直到主页特征消失为止（和 exitToLobbyForDrift"总能出去"的思路一致）。
 function reenterFarmFromLobby() {
     log('[FreezeRecovery] 从大厅重新进入农场');
     var attempt = 0;
@@ -1155,7 +1163,14 @@ function recenterAndDetectState() {
                 log('[FreezeRecovery] 回中比对异常: ' + e);
             }
         }
-        DriftGuard.refreshReference(imgB);
+        
+        // 修复“认贼作父”的严重逻辑漏洞：只有真正回中成功时，才刷新参考图
+        if (recentered) {
+            DriftGuard.refreshReference(imgB);
+        } else {
+            log('[FreezeRecovery] 回中确认失败，拒绝污染参考图！');
+        }
+        
         try {
             var ts = new java.text.SimpleDateFormat('yyyyMMdd_HHmmss_SSS').format(new Date());
             images.save(imgB, DEBUG_DIR + ts + '_freeze_recenter_state_' + (sickleReady ? 'sickle' : 'notsickle') + '.png');
@@ -1166,55 +1181,62 @@ function recenterAndDetectState() {
 
     log(recentered
         ? '[FreezeRecovery] 回中确认成功（回中前后两次截图的参考区域一致）'
-        : '[FreezeRecovery] 回中比对未能确认一致，已用最新截图刷新参考图，继续后续流程');
+        : '[FreezeRecovery] 回中比对未能确认一致，继续后续流程');
     log('[FreezeRecovery] 回中完成，菜单已打开，统一接收割流程');
     return { mode: 'harvest', menuAlreadyOpen: true };
 }
 
-function handleFreezeRecovery() {
-    log('[FreezeRecovery] (卡死) Phase1开始...');
-    for (var i = 1; i <= 3; i++) {
-        randomDragScreen(300);
-        sleepWithHeartbeat(1000);
-        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
-        sleepWithHeartbeat(10000);
-
-        var img = safeCaptureScreen();
-        if (!img) continue;
-
-        if (checkIsHomeSingleFrame(img)) {
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：初测疑似回到大厅，拖屏复测...');
+function handleFreezeRecovery(skipPhase1) {
+    if (!skipPhase1) {
+        log('[FreezeRecovery] (卡死) Phase1开始...');
+        for (var i = 1; i <= 3; i++) {
             randomDragScreen(300);
             sleepWithHeartbeat(1000);
-            var imgConfirm = safeCaptureScreen();
-            var confirmed = imgConfirm ? checkIsHomeSingleFrame(imgConfirm) : false;
-            if (imgConfirm) imgConfirm.recycle();
-            
-            if (confirmed) {
-                img.recycle();
-                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测成功，✅ 确认回到大厅');
-                reenterFarmFromLobby();
-                return recenterAndDetectState();
-            } else {
-                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测失败，❌ 判定为农场误报');
+            click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+            sleepWithHeartbeat(10000);
+
+            var img = safeCaptureScreen();
+            if (!img) continue;
+
+            if (checkIsHomeSingleFrame(img)) {
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：初测疑似回到大厅，拖屏复测...');
+                randomDragScreen(300);
+                sleepWithHeartbeat(1000);
+                var imgConfirm = safeCaptureScreen();
+                var confirmed = imgConfirm ? checkIsHomeSingleFrame(imgConfirm) : false;
+                if (imgConfirm) imgConfirm.recycle();
+                
+                if (confirmed) {
+                    img.recycle();
+                    log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测成功，✅ 确认回到大厅');
+                    reenterFarmFromLobby();
+                    return recenterAndDetectState();
+                } else {
+                    log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：拖屏复测失败，❌ 判定为农场误报');
+                }
             }
-        }
 
-        if (isDisconnectDialogShowing(img)) {
+            if (isDisconnectDialogShowing(img)) {
+                img.recycle();
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：检测到断线弹窗！');
+                clickReconnectAndConfirm();
+                return recenterAndDetectState();
+            }
+
+            var stillMatchesRef = DriftGuard.matchReference(img);
             img.recycle();
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：检测到断线弹窗！');
-            clickReconnectAndConfirm();
-            return recenterAndDetectState();
-        }
-
-        var stillMatchesRef = DriftGuard.matchReference(img);
-        img.recycle();
-        if (!stillMatchesRef) {
-            log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：画面已偏移，转入偏移恢复流程');
-            saveFreezeDebugImg('phase1_drift_round' + i);
-            exitToLobbyForDrift();
-            reenterFarmFromLobby();
-            return recenterAndDetectState();
+            if (!stillMatchesRef) {
+                log('[FreezeRecovery] (卡死) Phase1第' + i + '轮：画面已偏移，转入偏移恢复流程');
+                saveFreezeDebugImg('phase1_drift_round' + i);
+                var exitOk = exitToLobbyForDrift();
+                if (exitOk) {
+                    reenterFarmFromLobby();
+                    return recenterAndDetectState();
+                } else {
+                    log('[FreezeRecovery] (卡死) 偏移退出尝试失败，直接转入Phase 2');
+                    break; 
+                }
+            }
         }
     }
 
@@ -1251,7 +1273,10 @@ function handleFreezeRecovery() {
             }
         }
         img2.recycle();
-        log('[FreezeRecovery] (卡死) Phase2第' + waitRound + '轮：继续被动等待...');
+        
+        // 关键防死锁逻辑：不认识的界面不干等，盲点一次右上角破局
+        log('[FreezeRecovery] (卡死) Phase2第' + waitRound + '轮：未检测到断线或大厅，盲点一次右上角...');
+        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
     }
 }
 
@@ -1262,11 +1287,16 @@ function recoverFromFreeze(reasonLabel, kind) {
 
     var detectionResult;
     if (kind === 'drift') {
-        exitToLobbyForDrift();
-        reenterFarmFromLobby();
-        detectionResult = recenterAndDetectState();
+        var exitOk = exitToLobbyForDrift();
+        if (exitOk) {
+            reenterFarmFromLobby();
+            detectionResult = recenterAndDetectState();
+        } else {
+            // 如果连续5次都没退出来，强制转入带盲点的 Phase 2 死等流程
+            detectionResult = handleFreezeRecovery(true); 
+        }
     } else {
-        detectionResult = handleFreezeRecovery();
+        detectionResult = handleFreezeRecovery(false);
     }
 
     log('[FreezeRecovery] ===== 恢复流程完成，续接: ' + detectionResult.mode +
@@ -2081,53 +2111,60 @@ if (PANEL.RANCH_ENABLED) {
         toastLog("检测到已保存的马奶坐标，跳过定位");
     }
 }
-while (true) {
-    var usedPotion = dialogs.confirm("是否使用了生长加速酒？");
-    if (!usedPotion) break;
-    var hours = 6;
-    var actionClicked = null;
-    var d = dialogs.build({
-        title: "加速酒作用时长（小时）",
-        customView: (
-            <vertical padding="16">
-                <horizontal gravity="center" marginTop="8">
-                    <button id="btnMinus" text=" - " w="80" h="60" textSize="24sp" textStyle="bold" />
-                    <text id="tvHours" text="6" textColor="#000000" textSize="28sp" textStyle="bold" w="80" gravity="center" />
-                    <button id="btnPlus" text=" + " w="80" h="60" textSize="24sp" textStyle="bold" />
-                </horizontal>
-            </vertical>
-        ),
-        positive: "确定",
-        negative: "返回"
-    }).on("any", function (action, dialog) {
-        actionClicked = action;
-    });
-    var view = d.getCustomView();
-    view.btnMinus.click(function() {
-        if (hours > 1) {
-            hours--;
-            view.tvHours.setText(hours.toString());
+
+// 检查是否开启了启动时的加速酒提示
+if (PANEL.POTION_STARTUP_PROMPT) {
+    while (true) {
+        var usedPotion = dialogs.confirm("是否使用了生长加速酒？");
+        if (!usedPotion) break;
+        var hours = 6;
+        var actionClicked = null;
+        var d = dialogs.build({
+            title: "加速酒作用时长（小时）",
+            customView: (
+                <vertical padding="16">
+                    <horizontal gravity="center" marginTop="8">
+                        <button id="btnMinus" text=" - " w="80" h="60" textSize="24sp" textStyle="bold" />
+                        <text id="tvHours" text="6" textColor="#000000" textSize="28sp" textStyle="bold" w="80" gravity="center" />
+                        <button id="btnPlus" text=" + " w="80" h="60" textSize="24sp" textStyle="bold" />
+                    </horizontal>
+                </vertical>
+            ),
+            positive: "确定",
+            negative: "返回"
+        }).on("any", function (action, dialog) {
+            actionClicked = action;
+        });
+        var view = d.getCustomView();
+        view.btnMinus.click(function() {
+            if (hours > 1) {
+                hours--;
+                view.tvHours.setText(hours.toString());
+            }
+        });
+        view.btnPlus.click(function() {
+            if (hours < 24) {
+                hours++;
+                view.tvHours.setText(hours.toString());
+            }
+        });
+        d.show();
+        while (actionClicked == null) {
+            sleep(100);
         }
-    });
-    view.btnPlus.click(function() {
-        if (hours < 24) {
-            hours++;
-            view.tvHours.setText(hours.toString());
+        if (actionClicked != "positive") {
+            continue;
         }
-    });
-    d.show();
-    while (actionClicked == null) {
-        sleep(100);
+        potionHours = hours;
+        potionStartTime = Date.now();
+        potionActive = true;
+        toastLog("加速酒生效 " + potionHours + " 小时（实际提前5分钟失效）");
+        break;
     }
-    if (actionClicked != "positive") {
-        continue;
-    }
-    potionHours = hours;
-    potionStartTime = Date.now();
-    potionActive = true;
-    toastLog("加速酒生效 " + potionHours + " 小时（实际提前5分钟失效）");
-    break;
+} else {
+    log("跳过加速酒初始弹窗，如果需要请在左侧悬浮齿轮设置中开启。");
 }
+
 toastLog("10秒内切回游戏摆好镜头，注意仓库里鸡蛋/马奶的位置不能发生变动！");
 sleepWithHeartbeat(10000);
 captureReferencePatch();
@@ -2140,6 +2177,7 @@ initImg.recycle();
 createControlPanel();
 toastLog("记录完毕，开始挂机");
 log('截屏统计初始化: 总计=' + captureStats.total + ' 失败=' + captureStats.failed);
+
 // ================= 主循环 =================
 while (true) {
     try {
