@@ -107,7 +107,6 @@ var CONFIG = {
     seedIcon: [740, 910],
     riceSeedIcon: [935, 900],
     sickleIcon: [1220, 856],
-    freeButtonPos: [1200, 672],
     LEFT_X: 170, RIGHT_X: 2250,
     warehouseBtn: [2350, 480],
     warehouseConfirmBtn: [1890, 230],
@@ -135,7 +134,7 @@ var CONFIG = {
     // ============ 马场 ============
     bubble_R1: [195, 853],
     bubble_R2: [1060, 853],
-    bubble_CHOP: [620, 1060],
+    bubble_CHOP: [665, 1060],
     build_R1: [80, 1025],  enter_R1: [455, 390],
     build_R2: [1325, 755], enter_R2: [1325, 390],
     build_CHOP: [975, 865], enter_CHOP: [880, 475],
@@ -1492,10 +1491,6 @@ function waitUntilFree() {
         throw new PauseSignal();
     }
     setActionInProgress(true);
-    click(CONFIG.targetTile[0], CONFIG.targetTile[1]);
-    sleep(600);
-    click(CONFIG.freeButtonPos[0], CONFIG.freeButtonPos[1]);
-    sleep(500);
 }
 
 function handleWarehouseFullDuringHarvest() {
