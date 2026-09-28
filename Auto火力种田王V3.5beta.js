@@ -8,9 +8,9 @@ floaty.closeAll();
 // ============ 控制面板：改这11个数就行，下面自动变化 ============
 // ============================================================
 var PANEL = {
-    POTION_STARTUP_PROMPT: 0,      // 0=关闭启动时的加速酒弹窗，1=开启（关闭后，仍可随时通过悬浮窗齿轮设置开启加速酒）
-    WHEAT_COOLDOWN_SEC: 63,        // 小麦冷却秒数
-    RICE_COOLDOWN_SEC: 243,        // 水稻冷却秒数
+    POTION_STARTUP_PROMPT: 0,      // 0=关闭启动时的加速酒弹窗，1=开启（现在已经没酒了，除非天命阁，当然天命阁我也不建议给田地用）
+    WHEAT_COOLDOWN_SEC: 120,        // 小麦冷却秒数
+    RICE_COOLDOWN_SEC: 300,        // 水稻冷却秒数
     RICE_EVERY_N_CHICKEN: 3,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
     FACTORY_FEED_PULLS: 5,         // 中间两个铡刀坊（鸡场）各自的拖拽次数，默认5，对应鸡饲料x2
     CHOP_FEED_PULLS: 6,            // 下面铡刀坊（马场）的拖拽次数，默认6，对应马饲料x2
