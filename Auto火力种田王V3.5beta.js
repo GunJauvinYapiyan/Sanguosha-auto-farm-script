@@ -1,4 +1,4 @@
-// Auto火力种田王 V3.5beta版
+// Auto火力种田王 V3.5beta版（已加入中心土地防连点）
 // 提示：请将悬浮窗置于左上人物名片处，不要放太靠左上角，会遮挡水域影响驿站定位检测；也不要放在会遮挡主页界面金属色UI的地方，会影响主页检测。
 
 auto.waitFor();
@@ -783,6 +783,8 @@ function checkAndRunFarmTasks() {
         click(CONFIG.recenterTileAfterFarm[0], CONFIG.recenterTileAfterFarm[1]);
         centerTouched = true; // [改6] 这一下可能选中了中心土地
         pausableSleep(1000);
+        clickSafeClose(); // [改9] 鸡场流程一结束立刻清场，不让选中状态带进马场流程
+        pausableSleep(500);
         needSellEggs = true;
         chickenCycleCount++;
         if (chickenCycleCount >= CONFIG.RICE_EVERY_N_CHICKEN_CYCLES) {
@@ -857,7 +859,10 @@ function checkAndRunRanchTasks() {
         click(971, 366);
         pausableSleep(3000);
         click(1742, 157);
+        centerTouched = true; // [改10] 两步回中后中心土地可能处于选中状态
         pausableSleep(1000);
+        clickSafeClose(); // [改10] 马场流程一结束立刻清场
+        pausableSleep(500);
         // ===============================================
 
         needSellMilk = true;
