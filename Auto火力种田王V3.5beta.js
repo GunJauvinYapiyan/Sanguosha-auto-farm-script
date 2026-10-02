@@ -8,7 +8,7 @@ floaty.closeAll();
 // ============ 控制面板：改这11个数就行，下面自动变化 ============
 // ============================================================
 var PANEL = {
-    POTION_STARTUP_PROMPT: 0,      // 0=关闭启动时的加速酒弹窗，1=开启（现在已经没酒了，除非天命阁，当然天命阁我也不建议给田地用）
+    POTION_STARTUP_PROMPT: 0,      // 0=关闭启动时的加速酒弹窗，1=开启（关闭后，仍可随时通过悬浮窗齿轮设置开启加速酒）
     WHEAT_COOLDOWN_SEC: 120,        // 小麦冷却秒数
     RICE_COOLDOWN_SEC: 300,        // 水稻冷却秒数
     RICE_EVERY_N_CHICKEN: 3,       // 鸡场真正处理满几轮后种一次水稻（水稻轮距）
@@ -108,6 +108,7 @@ var CONFIG = {
     seedIcon: [740, 910],
     riceSeedIcon: [935, 900],
     sickleIcon: [1220, 856],
+    freeButtonPos: [1200, 672],
     LEFT_X: 170, RIGHT_X: 2250,
     warehouseBtn: [2350, 480],
     warehouseConfirmBtn: [1890, 230],
@@ -135,7 +136,7 @@ var CONFIG = {
     // ============ 马场 ============
     bubble_R1: [195, 853],
     bubble_R2: [1060, 853],
-    bubble_CHOP: [665, 1060],
+    bubble_CHOP: [620, 1060],
     build_R1: [80, 1025],  enter_R1: [455, 390],
     build_R2: [1325, 755], enter_R2: [1325, 390],
     build_CHOP: [975, 865], enter_CHOP: [880, 475],
@@ -201,6 +202,7 @@ var chickenPendingRound = false;
 var ranchPendingRound = false;
 var bubbleDetectSuspended = false;
 var stationGoodsPending = false;
+var centerTouched = false;  // [改1] 最近一次碰的是不是中心土地，且之后还没点过右下角（true 时不许再点中心土地）
 
 // ================= 悬浮控制/暂停状态 =================
 var CTRL = {
@@ -253,6 +255,27 @@ function refreshDriftReference() {
         img.recycle();
     }
     DriftGuard.reset();
+}
+
+// ================= [改2] 中心土地防连点 =================
+// 规则：中心土地不能连续点两次（不要求时间间隔，但两次之间必须点过右下角 SAFE_CLOSE）。
+// 所以：脚本里所有点右下角都走 clickSafeClose()（会清掉 centerTouched），
+//       所有点中心土地都走 clickCenterTile()（点之前如果 centerTouched 还是 true，会先自动点一下右下角）。
+function clickSafeClose() {
+    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    centerTouched = false;
+}
+function ensureCenterClean() {
+    if (centerTouched) {
+        log('[防连点] 上一次碰的是中心土地，先点一下右下角再继续');
+        clickSafeClose();
+        sleep(400);
+    }
+}
+function clickCenterTile(x, y) {
+    ensureCenterClean();
+    click(x, y);
+    centerTouched = true;
 }
 
 // ================= 悬浮控制面板：校准持久化 =================
@@ -652,6 +675,7 @@ function dragFarmLoop(key) {
     points = points.concat(generateLine(p.hook2, CONFIG.CENTER_TILE, 15));
     var duration = Math.max(points.length * 25, 500);
     gesture.apply(null, [duration].concat(points));
+    centerTouched = true; // [改3] 拖拽终点落在中心土地上
 }
 
 // ================= 气泡检测 =================
@@ -735,28 +759,29 @@ function checkAndRunFarmTasks() {
         for (var i = 0; i < PANEL.FACTORY_FEED_PULLS; i++) {
             pullFeedSafe(factX, factY);
         }
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         click(CONFIG.build_FT[0], CONFIG.build_FT[1]); pausableSleep(1000);
         click(CONFIG.enter_FT[0], CONFIG.enter_FT[1]); pausableSleep(1500);
         for (var i2 = 0; i2 < PANEL.FACTORY_FEED_PULLS; i2++) {
             pullFeedSafe(factX, factY);
         }
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         click(CONFIG.build_CL[0], CONFIG.build_CL[1]); pausableSleep(1000);
         click(CONFIG.enter_CL[0], CONFIG.enter_CL[1]); pausableSleep(1500);
         gesture(1500, CONFIG.coopFeedIcon, CONFIG.coopChicken1, CONFIG.coopChicken6);
         pausableSleep(200);
         click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
         pausableSleep(400);
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         click(CONFIG.build_CR[0], CONFIG.build_CR[1]); pausableSleep(1000);
         click(CONFIG.enter_CR[0], CONFIG.enter_CR[1]); pausableSleep(1500);
         gesture(1500, CONFIG.coopFeedIcon, CONFIG.coopChicken1, CONFIG.coopChicken6);
         pausableSleep(200);
         click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
         pausableSleep(400);
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         click(CONFIG.recenterTileAfterFarm[0], CONFIG.recenterTileAfterFarm[1]);
+        centerTouched = true; // [改6] 这一下可能选中了中心土地
         pausableSleep(1000);
         needSellEggs = true;
         chickenCycleCount++;
@@ -812,21 +837,21 @@ function checkAndRunRanchTasks() {
         pausableSleep(200);
         click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
         pausableSleep(400);
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         click(CONFIG.build_R2[0], CONFIG.build_R2[1]); pausableSleep(1000);
         click(CONFIG.enter_R2[0], CONFIG.enter_R2[1]); pausableSleep(1500);
         gesture(1500, CONFIG.coopFeedIcon, CONFIG.coopChicken1, CONFIG.coopChicken6);
         pausableSleep(200);
         click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
         pausableSleep(400);
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         pausableSleep(1000);
         click(CONFIG.build_CHOP[0], CONFIG.build_CHOP[1]); pausableSleep(1000);
         click(CONFIG.enter_CHOP[0], CONFIG.enter_CHOP[1]); pausableSleep(1500);
         for (var i = 0; i < PANEL.CHOP_FEED_PULLS; i++) {
             pullFeedSafe(CONFIG.chopFeedIcon[0], CONFIG.chopFeedIcon[1]);
         }
-        click(SAFE[0], SAFE[1]); pausableSleep(1000);
+        clickSafeClose(); pausableSleep(1000);
         
         // ================= 马场两步回中 =================
         click(971, 366);
@@ -873,7 +898,7 @@ function collectStationGoods() {
     } else {
         log('[驿站] 跳过装载（PANEL.STATION_LOAD_ENABLED=0）');
     }    
-    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    clickSafeClose();
     sleepWithHeartbeat(500);
     log('[驿站] 收货流程完成');
     stationGoodsPending = false;
@@ -1099,14 +1124,14 @@ function recenterAndDetectState() {
         imgA.recycle();
     }
 
-    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    clickSafeClose();
     sleepWithHeartbeat(500);
 
     var imgBefore = safeCaptureScreen();
     var beforeSamples = imgBefore ? getRegionColorFingerprint(imgBefore) : null;
     if (imgBefore) imgBefore.recycle();
 
-    click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]); 
+    clickCenterTile(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
 
     var elapsed = 0;
     var popped = false;
@@ -1137,7 +1162,7 @@ function recenterAndDetectState() {
 
     if (!popped) {
         log('[FreezeRecovery] 回中后唯一一次点击中心地，3秒内未检测到菜单弹出（疑似点空），退回兜底路径');
-        click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+        clickSafeClose();
         sleepWithHeartbeat(500);
         refreshDriftReference();
         return { mode: 'harvest', menuAlreadyOpen: false };
@@ -1342,16 +1367,14 @@ var CENTER_CLICK_RETRY_COUNT = 5;
 
 function clickAndAwaitMenu(clickX, clickY, stepLabel) {
     for (var attempt = 1; attempt <= CENTER_CLICK_RETRY_COUNT; attempt++) {
-        if (attempt > 1) {
-            click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
-            sleep(300);
-        }
+        // [改5b] 中心土地绝不连点两次：上一次碰过中心土地就先点右下角，第1次尝试也一样
+        ensureCenterClean();
         var imgRef = safeCaptureScreen();
         if (imgRef) {
             menuRefColors = getRegionColorFingerprint(imgRef);
             imgRef.recycle();
         }
-        click(clickX, clickY);
+        clickCenterTile(clickX, clickY);
         var elapsed = 0;
         var popped = false;
         while (elapsed < 3000) {
@@ -1404,7 +1427,7 @@ function handleWarehouseFullOrFallback(reasonLabel) {
         toastLog('仓库已满挽救连续触发' + consecutiveWarehouseFullRecoveries + '次（' + reasonLabel + '），怀疑是误触了远处建筑弹窗，改为整体重置：退出游戏重进');
         log('[WarehouseFullFallback] 连续' + consecutiveWarehouseFullRecoveries + '次疑似爆仓（触发环节: ' + reasonLabel + '），触发兜底：清场退出重进，不再继续按仓库已满的固定坐标点');
         consecutiveWarehouseFullRecoveries = 0;
-        click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+        clickSafeClose();
         sleepWithHeartbeat(500);
         var result = recoverFromFreeze('连续' + MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES + '次疑似爆仓误判(' + reasonLabel + ')', 'drift');
         throw new RecoveredCycleSignal(result.mode, result.menuAlreadyOpen);
@@ -1501,10 +1524,13 @@ function sellCropsAndEggs() {
         pausableSleep(500);
         needSellMilk = false;
     }
-    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    clickSafeClose();
     pausableSleep(500);
     click(CONFIG.returnToFieldBtn[0], CONFIG.returnToFieldBtn[1]);
     pausableSleep(1500);
+    // [改7] 回到农场后补点右下角，清掉中心土地可能的选中状态
+    clickSafeClose();
+    pausableSleep(500);
 }
 
 function waitUntilFree() {
@@ -1556,10 +1582,13 @@ function handleWarehouseFullDuringHarvest() {
         pausableSleep(500);
         needSellMilk = false;
     }
-    click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+    clickSafeClose();
     pausableSleep(500);
     click(CONFIG.returnToFieldBtn[0], CONFIG.returnToFieldBtn[1]);
     pausableSleep(1500);
+    // [改7] 回到农场后补点右下角，清掉中心土地可能的选中状态
+    clickSafeClose();
+    pausableSleep(500);
     skipNextSell = true;
     bubbleDetectSuspended = true;
     log('仓库已满挽救流程完成，已标记暂停气泡检测直到下次收割干净');
@@ -1627,6 +1656,8 @@ function handlePauseAndResume() {
             toastLog('10秒后开始种植，请确保已回到中心基准地');
             log('[恢复] 用户选择"种植"，等待10秒后从基准地开始完整流程');
             pausableSleep(10000);
+            clickSafeClose(); // [改8b] 暂停期间用户可能碰过中心土地，先清掉选中状态
+            pausableSleep(500);
             refreshDriftReference();
             skipToHarvestOnce = false;
         }
@@ -2186,7 +2217,7 @@ while (true) {
             if (!menuAlreadyOpenH) {
                 // 手动暂停->点播放 这条路径走到这里时菜单是关闭的，按原来的方式
                 // 清场后交给 harvestAll() 自己重新点开。
-                click(CONFIG.SAFE_CLOSE[0], CONFIG.SAFE_CLOSE[1]);
+                clickSafeClose();
                 sleep(500);
             }
             harvestAll(menuAlreadyOpenH);
@@ -2206,6 +2237,9 @@ while (true) {
                 checkAndRunFarmTasks();
                 checkAndRunRanchTasks();
             }
+            // [改8a] 鸡场/马场流程的收尾回中点击，先清掉再做别的
+            clickSafeClose();
+            pausableSleep(500);
             // 种植/卖货/气泡检测都走完了，这时如果上一轮收割后记下了驿站
             // 出货，统一在这里去处理，不打断前面的正常流程。
             if (stationGoodsPending) {
