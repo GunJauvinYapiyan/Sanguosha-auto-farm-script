@@ -33,7 +33,7 @@ var PANEL = {
 // ============ 轮种表：一圈6轮，跑完自动回到第1轮 ============
 // ============================================================
 // crop  = 这一轮种什么：wheat小麦 / rice水稻 / soy大豆 / cane甘蔗
-// sells = 这一轮"种下去之后"去仓库卖的东西，格式 ['作物', 次数]，卖的是前面收上来的存货；
+// sells = 这一轮"种下去之后"去仓库卖的东西，格式 ['作物', 次数]，卖的是前面收上来的存货，
 //         每卖一次约卖掉库存的一半；留空 [] 表示这一轮不去仓库。
 //         [改] 开启 SELL_ONLY_AFTER_HARVEST 时，某作物如果还没有"收上来后没卖过"的存货，这一项会被自动跳过；
 //         同一趟里实际的卖货顺序由脚本按仓库格子位置从后往前排，与这里写的先后无关。
@@ -253,6 +253,7 @@ var ranchPartialSince = 0;          // 马场同理
 var bubbleFlowActive = false;       // 鸡场/马场流程进行中：为true时一律不检测气泡
 var bubbleDetectSuspended = false;
 var stationGoodsPending = false;
+var forceFlowsPending = false;      // 断线恢复后，等待强制跑一次鸡场/马场流程
 // [改] 卖货相关状态
 var unsoldStock = { wheat: false, rice: false, soy: false, cane: false }; // 该作物是否"收上来了、且收完后还没卖过"
 var plantDone = false;              // 本轮种植的拖拽是否已经完整跑完（挽救流程据此决定回中后该"收"还是"重新种"）
@@ -821,7 +822,11 @@ function checkAndRunFarmTasks() {
         chickenPartialSince = 0;
     }
     if (mode === 'none') return 'none';
+    return runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER);
+}
 
+// 鸡场流程本体。四个 has_* 为 true 才会点对应气泡
+function runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER) {
     // ---- 从这里开始进入鸡场流程：流程进行期间禁用气泡检测 ----
     beginAction();
     bubbleFlowActive = true;
@@ -902,13 +907,17 @@ function checkAndRunRanchTasks() {
         ranchPartialSince = 0;
     }
     if (mode === 'none') return 'none';
+    return runRanchFlow(mode, has_R1, has_R2, true);
+}
 
+// 马场流程本体。clickChop=true 才会点下面铡刀坊的气泡（正常流程一律传 true）
+function runRanchFlow(mode, has_R1, has_R2, clickChop) {
     // ---- 从这里开始进入马场流程：流程进行期间禁用气泡检测 ----
     beginAction();
     bubbleFlowActive = true;
     if (has_R1) { click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400); }
     if (has_R2) { click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(400); }
-    click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(800); 
+    if (clickChop) { click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(800); }
     var SAFE = CONFIG.SAFE_CLOSE;
     pausableSleep(1000);
     click(CONFIG.build_R1[0], CONFIG.build_R1[1]); pausableSleep(1000);
@@ -943,6 +952,41 @@ function checkAndRunRanchTasks() {
     needSellMilk = true;
     bubbleFlowActive = false;
     return mode;
+}
+
+// ================= 断线恢复后的强制执行 =================
+// 先识别气泡，有气泡的位置先点掉，再不管齐不齐把整套流程跑一遍；饲料已满也只是空转
+function runForcedFlows() {
+    log('[断线恢复] 强制各跑一次鸡场/马场流程（有气泡的先点掉）');
+    if (PANEL.CHICKEN_ENABLED) {
+        var ft = false, fb = false, el = false, er = false;
+        var imgC = safeCaptureScreen();
+        if (imgC) {
+            ft = isBubblePresent(imgC, CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]);
+            fb = isBubblePresent(imgC, CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]);
+            el = isBubblePresent(imgC, CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]);
+            er = isBubblePresent(imgC, CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]);
+            imgC.recycle();
+        }
+        log("[断线恢复] 鸡场气泡: FT=" + ft + " FB=" + fb + " EL=" + el + " ER=" + er);
+        runChickenFlow('force', ft, fb, el, er);
+        clickSafeClose();
+        pausableSleep(500);
+    }
+    if (PANEL.RANCH_ENABLED) {
+        var r1 = false, r2 = false, chop = false;
+        var imgR = safeCaptureScreen();
+        if (imgR) {
+            r1 = isBubblePresent(imgR, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
+            r2 = isBubblePresent(imgR, CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]);
+            chop = isBubblePresent(imgR, CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]);
+            imgR.recycle();
+        }
+        log("[断线恢复] 马场气泡: R1=" + r1 + " R2=" + r2 + " CHOP=" + chop);
+        runRanchFlow('force', r1, r2, chop);
+        clickSafeClose();
+        pausableSleep(500);
+    }
 }
 
 // ============================================================
@@ -1264,9 +1308,11 @@ function recenterAndDetectState() {
     sleep(350); 
     var imgB = safeCaptureScreen();
     var sickleReady = true;
+    var sickleNow = false; // 截屏失败时不当作"镰刀已弹出"
     var recentered = false;
     if (imgB) {
         sickleReady = isRegionUniform(imgB, CONFIG.sickleStateRegion, CONFIG.sickleStateTolerance);
+        sickleNow = sickleReady;
         if (patchA) {
             try {
                 var searchRegion = [
@@ -1299,8 +1345,8 @@ function recenterAndDetectState() {
     log(recentered
         ? '[FreezeRecovery] 回中确认成功（回中前后两次截图的参考区域一致）'
         : '[FreezeRecovery] 回中比对未能确认一致，继续后续流程');
-    log('[FreezeRecovery] 回中完成，菜单已打开，统一接收割流程');
-    return { mode: 'harvest', menuAlreadyOpen: true };
+    log('[FreezeRecovery] 回中完成，菜单已打开，镰刀' + (sickleNow ? '已弹出' : '未检测到'));
+    return { mode: 'harvest', menuAlreadyOpen: true, sickleNow: sickleNow };
 }
 
 function handleFreezeRecovery(skipPhase1) {
@@ -1421,18 +1467,25 @@ function recoverFromFreeze(reasonLabel, kind) {
     // 所以只有本轮已经种完（plantDone）才续接收割，否则重新种这一轮。
     var effMode = (detectionResult.mode === 'harvest' && plantDone) ? 'harvest' : 'plant';
     var menuOpen = detectionResult.menuAlreadyOpen;
+    var harvestNow = false;
     if (effMode === 'harvest') {
-        // 回中成功、接着读秒：最后一个动作固定是点一下右下角（"点空"分支里已经点过；菜单还开着就在这里点）
-        if (menuOpen) {
-            clickSafeClose();
-            sleepWithHeartbeat(500);
+        if (menuOpen && detectionResult.sickleNow) {
+            // 镰刀已弹出：菜单保持打开，直接收割（menuOpen=true 在 harvest 模式下就表示这个）
+            harvestNow = true;
+        } else {
+            // 没检测到镰刀：关菜单，沿用种植时记下的时间继续读秒
+            if (menuOpen) {
+                clickSafeClose();
+                sleepWithHeartbeat(500);
+            }
+            menuOpen = false;
         }
-        menuOpen = false;
     }
     detectionResult = { mode: effMode, menuAlreadyOpen: menuOpen };
     log('[FreezeRecovery] ===== 恢复流程完成，续接: ' + effMode +
-        (effMode === 'harvest' ? '（已点右下角，沿用种植时记下的时间继续读秒，成熟后再点中心土地收割）' : '（本轮还没种下去，重新种植）') + ' =====');
-    toastLog('已重连并回正，继续' + (effMode === 'harvest' ? '等待成熟并收割' : '重新种植'));
+        (harvestNow ? '（镰刀已弹出，菜单保持打开，直接收割）' :
+         effMode === 'harvest' ? '（已点右下角，沿用种植时记下的时间继续读秒）' : '（本轮还没种下去，重新种植）') + ' =====');
+    toastLog('已重连并回正，继续' + (harvestNow ? '收割' : effMode === 'harvest' ? '等待成熟并收割' : '重新种植'));
     return detectionResult;
 }
 
@@ -1837,6 +1890,12 @@ function waitReadyAndHarvest(forceNow) {
     clickSafeClose();
     pausableSleep(500);
     log('[等待] ' + crop.label + ' 还需约 ' + Math.max(0, Math.round((readyAt - Date.now()) / 1000)) + ' 秒到点');
+
+    // 断线恢复后的强制鸡场/马场：作物还在长才跑；已经熟了就先收、先种，下一次等待再跑
+    if (forceFlowsPending && Date.now() < readyAt) {
+        runForcedFlows();
+        forceFlowsPending = false;
+    }
 
     var pollMs = Math.max(1, PANEL.BUBBLE_POLL_SEC) * 1000;
     var stopMs = Math.max(0, PANEL.BUBBLE_STOP_BEFORE_READY_SEC) * 1000;
@@ -2487,11 +2546,18 @@ while (true) {
         var round = SCHEDULE[roundIdx];
         if (skipToHarvestOnce) {
             skipToHarvestOnce = false;
+            var menuOpenH = pendingMenuAlreadyOpen;
             pendingMenuAlreadyOpen = false;
             var forceNow = skipWaitOnce;
             skipWaitOnce = false;
-            log('===== 跳过种植与卖货，直接进入收割：第' + (roundIdx + 1) + '/' + SCHEDULE.length + '轮 ' + CROPS[currentCrop].label + (forceNow ? '（立即收割）' : '（等成熟计时到点）') + ' =====');
-            waitReadyAndHarvest(forceNow);
+            if (menuOpenH) {
+                log('===== 断线恢复后镰刀菜单已弹出，直接收割：第' + (roundIdx + 1) + '/' + SCHEDULE.length + '轮 ' + CROPS[currentCrop].label + ' =====');
+                beginAction();
+                harvestAll(true);
+            } else {
+                log('===== 跳过种植与卖货，直接进入收割：第' + (roundIdx + 1) + '/' + SCHEDULE.length + '轮 ' + CROPS[currentCrop].label + (forceNow ? '（立即收割）' : '（等成熟计时到点）') + ' =====');
+                waitReadyAndHarvest(forceNow);
+            }
         } else {
             DriftGuard.reset();
             log('===== 第' + (roundIdx + 1) + '/' + SCHEDULE.length + '轮 种' + CROPS[round.crop].label + ' ' + new Date().toLocaleTimeString() + ' =====');
@@ -2534,15 +2600,14 @@ while (true) {
             pendingMenuAlreadyOpen = false;
             log('[轮种] 爆仓变卖完成，从第1轮（小麦）重新开始');
         } else if (e instanceof RecoveredCycleSignal) {
-            // [改] e.mode 已经在 recoverFromFreeze 里按 plantDone 判定过：'harvest'=本轮已种完，续接读秒等收割；'plant'=本轮还没种，重新种。
+            // e.mode 已在 recoverFromFreeze 里按 plantDone 判定：'harvest'=本轮已种完，继续读秒等收割；'plant'=本轮还没种，重新种
             skipToHarvestOnce = (e.mode === 'harvest');
             pendingMenuAlreadyOpen = e.menuAlreadyOpen;
-            if (e.mode === 'plant') {
-                // 跳过下一轮气泡检测，防止外面还有残留没清干净。
-                bubbleDetectSuspended = true;
-                log('[FreezeRecovery] 回中后本轮还没种下去（plantDone=false），改为重新种植本轮，并标记跳过下一轮鸡场/马场气泡检测');
-            }
-            log('[FreezeRecovery] 恢复流程结束，下一轮将' + (skipToHarvestOnce ? '继续等待成熟并收割当前这一轮' : '重新种植当前这一轮') + '，衔接主循环继续');
+            // 断线恢复后：到下次干净收割前不做常规气泡检测；先收、先种，之后的等待里强制各跑一次鸡场/马场
+            bubbleDetectSuspended = true;
+            forceFlowsPending = true;
+            log('[FreezeRecovery] 恢复完成：先收割/种植，之后的等待里强制各跑一次鸡场/马场流程');
+            log('[FreezeRecovery] 下一轮将' + (skipToHarvestOnce ? '继续等待成熟并收割当前这一轮' : '重新种植当前这一轮') + '，衔接主循环继续');
         } else {
             toastLog("主循环异常：" + (e && e.message ? e.message : e));
             log("完整异常堆栈: " + e);
