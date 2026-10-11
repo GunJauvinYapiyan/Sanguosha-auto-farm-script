@@ -42,6 +42,9 @@ V3.0稳定版更新：修改了检测镰刀的抓取逻辑，确保网络波动�
 经验收益：
 鸡蛋鸡饲料经验均为3，3x270=810;马奶马饲料经验为5+4=9，72x9=648
 
+良田摆位与仓库刚好对称：
+<img width="2412" height="1080" alt="27f0ce1668a4e904e0a07470ccf3b257" src="https://github.com/user-attachments/assets/01ff83f9-15a8-49f8-b6a4-cf4fc2d014c7" />
+
 摆位参考：
 <img width="1299" height="719" alt="76a3fd8136dd2af0d68f4cf5ffec1849" src="https://github.com/user-attachments/assets/56d27f6d-b130-4ce8-9ac8-2ccc9d706ae6" />
 <img width="1340" height="714" alt="2e217ab6a7249aa4b54223cc2d6c6cb1" src="https://github.com/user-attachments/assets/2b80a654-3149-4d1e-86a8-cf99f9ca5137" />
