@@ -1,13 +1,4 @@
-/**
- * Auto火力种田王 - 日常多功能辅助脚本（良田独立挂机 + 小麦/水稻/大豆/玉米/南瓜 手动单次种收）
- * 说明：
- *   1. 悬浮窗带 ⚙ 设置按钮（仅暂停状态下可打开和切换挡位，运行中自动置灰锁定）。
- *   2. 设置菜单内提供 6 个独立挡位（2列紧凑排布）：
- *      - 【良田】：点 ▶ 弹窗确认「是否开始自动种植进程？」，确定后执行原版良田单点循环（三连点中心 → 拖小麦脱手 → 点中心定镜头 → 静默读秒121秒）。
- *      - 【小麦 / 水稻 / 大豆 / 玉米 / 南瓜】：先在游戏里选中中间土地（底部菜单已弹出），点 ▶ 弹窗询问「种植 / 收割 / 取消」，选定后直接执行相应转三圈手势，动作完成后自动停在暂停状态，不点空地、不等待、不变卖。
- *      - 【收割统一】：无论处于哪个作物挡位，点击「收割」均调用统一的镰刀转三圈手势。
- *   3. 玉米、南瓜、镰刀的 bottomY 均已更新为 925。
- */
+//Auto火力种田王 - 日常多功能辅助脚本（良田独立挂机 + 小麦/水稻/大豆/玉米/南瓜 手动单次种收）
 
 auto.waitFor();
 floaty.closeAll();
@@ -31,12 +22,12 @@ var CONFIG = {
 };
 
 var PARAMS = {
-    wheat:   { topY: 151, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.WHEAT,   loop1Ms: 19, loop2Ms: 17, loop3Ms: 15 },
-    rice:    { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.RICE,    loop1Ms: 22, loop2Ms: 21, loop3Ms: 20 },
-    soy:     { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.SOY,     loop1Ms: 22, loop2Ms: 21, loop3Ms: 20 },
-    corn:    { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.CORN,    loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    pumpkin: { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.PUMPKIN, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    sickle:  { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.SICKLE,  loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 }
+    wheat:      { topY: 151, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.seedIcon,     loop1Ms: 36, loop2Ms: 17, loop3Ms: 15 },
+    rice:       { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.riceSeedIcon, loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    soy:        { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.soySeedIcon,  loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    cane:       { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.caneSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    corn:       { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.cornSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    sickle:     { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.sickleIcon,   loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
 };
 
 var STATE = {
