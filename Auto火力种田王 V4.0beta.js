@@ -27,8 +27,7 @@ var PANEL = {
     FERTILE_INTERVAL_SEC: 120,        // 良田收种间隔秒数
     FERTILE_EXTRA_WHEAT_SELLS: 2,     // 卖鸡蛋那趟仓库顺带卖小麦次数（固定消化小麦，主轮种表不再卖小麦）
     CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程
-    LOBBY_ENTER_LIST_BTN: [2250, 995],
-    LOBBY_ENTER_FARM_BTN: [1535, 290]
+    LOBBY_ENTER_FARM_BTN: [175, 645]
 };
 
 // ==================== 轮种表（前8轮47min四作物循环 + 第9轮起2玉米1麦1稻无限循环） ====================
@@ -1025,7 +1024,6 @@ CONFIG.disconnectDialogMinBrightness = 200;
 CONFIG.disconnectDialogColorRef = [251, 244, 216];
 CONFIG.disconnectDialogColorTolerance = 30;
 CONFIG.disconnectDialogReconnectBtn = [1380, 670];
-CONFIG.lobbyEnterListBtn = PANEL.LOBBY_ENTER_LIST_BTN;
 CONFIG.lobbyEnterFarmBtn = PANEL.LOBBY_ENTER_FARM_BTN;
 CONFIG.noticeBoardRecenterBtn = [1108, 1028];
 CONFIG.sickleMenuRegion = [1100, 985, 240, 30];
@@ -1106,8 +1104,6 @@ function exitToLobbyForDrift() {
 
 function reenterFarmFromLobby() {
     while (true) {
-        click(CONFIG.lobbyEnterListBtn[0], CONFIG.lobbyEnterListBtn[1]);
-        sleepWithHeartbeat(10000);
         click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
         sleepWithHeartbeat(10000);
         var img = safeCaptureScreen();
