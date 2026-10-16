@@ -10,12 +10,12 @@ var PANEL = {
     RICE_COOLDOWN_SEC: 300,           // 水稻成熟秒数（5分钟）
     SOY_COOLDOWN_SEC: 600,            // 大豆成熟秒数（10分钟）
     CANE_COOLDOWN_SEC: 1800,          // 甘蔗成熟秒数（30分钟）
-    CORN_COOLDOWN_SEC: 3600,          // 主田玉米成熟秒数（60分钟）
+    CORN_COOLDOWN_SEC: 3600,          // 玉米成熟秒数（60分钟）
     FACTORY_FEED_PULLS: 5,            // 鸡场铡刀坊拖拽次数
     CHOP_FEED_PULLS: 6,               // 马场铡刀坊拖拽次数
     CHICKEN_ENABLED: 1,               // 1=开启鸡场，0=关闭
     RANCH_ENABLED: 1,                 // 1=开启马场，0=关闭
-    STATION_LOAD_ENABLED: 0,          // 1=驿站顺带点装载，0=只收货
+    STATION_LOAD_ENABLED: 1,          // 1=驿站顺带点装载，0=只收货
     BUBBLE_POLL_SEC: 5,               // 气泡检测间隔秒数
     BUBBLE_STOP_BEFORE_READY_SEC: 20, // 成熟前停止气泡检测秒数
     PARTIAL_GRACE_SEC: 30,            // 气泡不齐宽限秒数（超时抢收）
