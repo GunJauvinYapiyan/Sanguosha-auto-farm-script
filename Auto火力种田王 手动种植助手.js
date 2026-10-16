@@ -22,12 +22,12 @@ var CONFIG = {
 };
 
 var PARAMS = {
-    wheat:      { topY: 151, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.seedIcon,     loop1Ms: 36, loop2Ms: 17, loop3Ms: 15 },
-    rice:       { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.riceSeedIcon, loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
-    soy:        { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.soySeedIcon,  loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
-    cane:       { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.caneSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    corn:       { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.cornSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    sickle:     { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.sickleIcon,   loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    wheat:   { topY: 151, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.WHEAT,   loop1Ms: 36, loop2Ms: 17, loop3Ms: 15 },
+    rice:    { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.RICE,    loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    soy:     { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.SOY,     loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    corn:    { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.CORN,    loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    pumpkin: { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.PUMPKIN, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    sickle:  { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.SICKLE,  loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 }
 };
 
 var STATE = {
