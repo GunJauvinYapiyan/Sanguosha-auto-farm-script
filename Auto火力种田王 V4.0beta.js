@@ -252,13 +252,12 @@ var CONFIG = {
 CONFIG.caneSeedIcon = CONFIG.sickleIcon;
 
 var PARAMS = {
-    wheat:      { topY: 151, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.seedIcon,     loop1Ms: 36, loop2Ms: 17, loop3Ms: 15 },
-    rice:       { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.riceSeedIcon, loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
-    soy:        { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.soySeedIcon,  loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
-    cane:       { topY: 153, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.caneSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    corn:       { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.cornSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    sickle:     { topY: 153, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.sickleIcon,   loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
-    riceSickle: { topY: 153, bottomY: 924, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.sickleIcon,   loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 }
+    wheat:  { topY: 151, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.seedIcon,     loop1Ms: 36, loop2Ms: 17, loop3Ms: 15 },
+    rice:   { topY: 151, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.riceSeedIcon, loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    soy:    { topY: 151, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.soySeedIcon,  loop1Ms: 36, loop2Ms: 21, loop3Ms: 20 },
+    cane:   { topY: 151, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.caneSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    corn:   { topY: 151, bottomY: 925, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.cornSeedIcon, loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 },
+    sickle: { topY: 151, bottomY: 926, shrink: 90, shrink2: 55, hook1: [241, 575], hook2: [668, 815], icon: CONFIG.sickleIcon,   loop1Ms: 36, loop2Ms: 18, loop3Ms: 14 }
 };
 CONFIG.LOOP_COUNT = 3;
 
@@ -279,7 +278,7 @@ var fertileLastPlantTime = 0;
 // ================= 作物表 =================
 var CROPS = {
     wheat: { label: '小麦', plantKey: 'wheat', harvestKey: 'sickle',     cooldownSec: PANEL.WHEAT_COOLDOWN_SEC, slot: CONFIG.wheatSlotInWarehouse, sellBtn: CONFIG.sellBtn },
-    rice:  { label: '水稻', plantKey: 'rice',  harvestKey: 'riceSickle', cooldownSec: PANEL.RICE_COOLDOWN_SEC,  slot: CONFIG.riceSlotInWarehouse,  sellBtn: CONFIG.riceSellBtn },
+    rice:  { label: '水稻', plantKey: 'rice',  harvestKey: 'sickle',     cooldownSec: PANEL.RICE_COOLDOWN_SEC,  slot: CONFIG.riceSlotInWarehouse,  sellBtn: CONFIG.riceSellBtn },
     soy:   { label: '大豆', plantKey: 'soy',   harvestKey: 'sickle',     cooldownSec: PANEL.SOY_COOLDOWN_SEC,   slot: CONFIG.soySlotInWarehouse,   sellBtn: CONFIG.soySellBtn },
     cane:  { label: '甘蔗', plantKey: 'cane',  harvestKey: 'sickle',     cooldownSec: PANEL.CANE_COOLDOWN_SEC,  slot: CONFIG.caneSlotInWarehouse,  sellBtn: CONFIG.caneSellBtn },
     corn:  { label: '玉米', plantKey: 'corn',  harvestKey: 'sickle',     cooldownSec: PANEL.CORN_COOLDOWN_SEC,  slot: CONFIG.cornSlotInWarehouse,  sellBtn: CONFIG.cornSellBtn }
@@ -733,23 +732,25 @@ function dragFarmLoop(key) {
     points = points.concat(generateLine(TL, TR, scaleSteps(BASE_STEPS.l1_top, p.loop1Ms)));
     points = points.concat(generateLine(TR, BR, scaleSteps(BASE_STEPS.l1_right, p.loop1Ms)));
     points = points.concat(generateLine(BR, BL, scaleSteps(BASE_STEPS.l1_bottom, p.loop1Ms)));
-    points = points.concat(generateLine(BL, TL, scaleSteps(BASE_STEPS.l1_left, p.loop1Ms)));
     var l2 = l1 + p.shrink, r2x = r1 - p.shrink, t2 = t1 + p.shrink, b2 = b1 - p.shrink;
     var TL2 = [l2, t2], TR2 = [r2x, t2], BR2 = [r2x, b2], BL2 = [l2, b2];
+    var TL_FLAT = [l1, t2];
     var l2TopSteps = scaleSteps(BASE_STEPS.l2_top, p.loop2Ms);
     var l2TopDist = dist(TL2, TR2);
-    points = points.concat(generateLine(TL, TL2, matchSteps(TL, TL2, l2TopSteps, l2TopDist)));
+    points = points.concat(generateLine(BL, TL_FLAT, scaleSteps(BASE_STEPS.l1_left, p.loop1Ms)));
+    points = points.concat(generateLine(TL_FLAT, TL2, matchSteps(TL_FLAT, TL2, l2TopSteps, l2TopDist)));
     points = points.concat(generateLine(TL2, TR2, l2TopSteps));
     points = points.concat(generateLine(TR2, BR2, scaleSteps(BASE_STEPS.l2_right, p.loop2Ms)));
     points = points.concat(generateLine(BR2, BL2, scaleSteps(BASE_STEPS.l2_bottom, p.loop2Ms)));
     var lastCorner = BL2;
     if (CONFIG.LOOP_COUNT >= 3) {
-        points = points.concat(generateLine(BL2, TL2, scaleSteps(BASE_STEPS.l3_close, p.loop2Ms)));
         var l3 = l2 + p.shrink2, r3 = r2x - p.shrink2, t3 = t2 + p.shrink2, b3 = b2 - p.shrink2;
         var TL3 = [l3, t3], TR3 = [r3, t3], BR3 = [r3, b3], BL3 = [l3, b3];
+        var TL2_FLAT = [l2, t3];
         var l3TopSteps = scaleSteps(BASE_STEPS.l3_top, p.loop3Ms);
         var l3TopDist = dist(TL3, TR3);
-        points = points.concat(generateLine(TL2, TL3, matchSteps(TL2, TL3, l3TopSteps, l3TopDist)));
+        points = points.concat(generateLine(BL2, TL2_FLAT, scaleSteps(BASE_STEPS.l3_close, p.loop2Ms)));
+        points = points.concat(generateLine(TL2_FLAT, TL3, matchSteps(TL2_FLAT, TL3, l3TopSteps, l3TopDist)));
         points = points.concat(generateLine(TL3, TR3, l3TopSteps));
         points = points.concat(generateLine(TR3, BR3, scaleSteps(BASE_STEPS.l3_right, p.loop3Ms)));
         points = points.concat(generateLine(BR3, BL3, scaleSteps(BASE_STEPS.l3_bottom, p.loop3Ms)));
