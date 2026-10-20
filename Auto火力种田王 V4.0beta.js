@@ -142,7 +142,7 @@ function sleepWithHeartbeat(ms) {
         sleep(t);
         remain -= t;
         renewLock();
-        if (CTRL.paused) {
+        if (CTRL.paused || pauseTriggered) {
             throw new PauseSignal();
         }
     }
@@ -319,6 +319,7 @@ var skipToHarvestOnce = false;
 var skipWaitOnce = false;
 var pendingMenuAlreadyOpen = false;
 var pendingResumeChoice = null;
+var pauseTriggered = false;
 function PauseSignal() {}
 function RestartCycleSignal() {}
 function RecoveredCycleSignal(mode, menuAlreadyOpen) {
@@ -339,7 +340,7 @@ function pausableSleep(ms) {
             renewLock();
             sinceHeartbeat = 0;
         }
-        if (CTRL.paused) {
+        if (CTRL.paused || pauseTriggered) {
             throw new PauseSignal();
         }
     }
@@ -406,7 +407,8 @@ if (ranchCalibrated) {
 }
 var ctrlWin = null;
 var referencePatch = null;
-var REF_REGION = [1574, 326, 147, 128];
+// 方案A：使用纯屋顶内缩框 [1606, 354, 106, 78]，彻底避开左上角农田三角形与右下角母鸡动画
+var REF_REGION = [1606, 354, 106, 78];
 var DRIFT_SEARCH_MARGIN = 40;
 function captureReferencePatch() {
     var img = safeCaptureScreen();
@@ -498,6 +500,7 @@ function regionHasColorNear(img, cx, cy, radius, targetColor, tolerance, step) {
 }
 
 // ================= DriftGuard 偏移校验系统 =================
+// 始终与脚本启动时在中心截取的初始 referencePatch 比对，中途绝不覆盖参考图
 var DriftGuard = {
     suspected: false,
     debugImgPaths: [],
@@ -533,49 +536,13 @@ var DriftGuard = {
             return true;
         }
     },
-    refreshReference: function (img) {
-        if (referencePatch) referencePatch.recycle();
-        referencePatch = images.clip(img, REF_REGION[0], REF_REGION[1], REF_REGION[2], REF_REGION[3]);
-        log('[DriftGuard] 参考图已刷新');
-    },
     isWarehouseFull: function (img) {
         return isRegionUniform(img, CONFIG.warehouseFullCheckRegion, CONFIG.warehouseFullUniformTolerance);
-    },
-    crossCompare: function () {
-        if (this.debugImgPaths.length < 2) return false;
-        var firstPath = this.debugImgPaths[0];
-        var lastPath = this.debugImgPaths[this.debugImgPaths.length - 1];
-        var firstImg = null, lastImg = null, patch = null;
-        var matched = false;
-        try {
-            firstImg = images.read(firstPath);
-            lastImg = images.read(lastPath);
-            if (!firstImg || !lastImg) {
-                if (firstImg) firstImg.recycle();
-                if (lastImg) lastImg.recycle();
-                return false;
-            }
-            patch = images.clip(firstImg, REF_REGION[0], REF_REGION[1], REF_REGION[2], REF_REGION[3]);
-            var searchRegion = [
-                Math.max(REF_REGION[0] - DRIFT_SEARCH_MARGIN, 0),
-                Math.max(REF_REGION[1] - DRIFT_SEARCH_MARGIN, 0),
-                REF_REGION[2] + DRIFT_SEARCH_MARGIN * 2,
-                REF_REGION[3] + DRIFT_SEARCH_MARGIN * 2
-            ];
-            matched = !!findImage(lastImg, patch, { region: searchRegion, threshold: 0.80 });
-        } catch (e) {
-            log('[DriftGuard] 交叉比对异常: ' + e);
-        }
-        if (patch) patch.recycle();
-        if (firstImg) firstImg.recycle();
-        if (lastImg) lastImg.recycle();
-        return matched;
     },
     softCheck: function (stepName) {
         var img = safeCaptureScreen();
         if (!img) return 'ok';
         if (this.matchReference(img)) {
-            this.refreshReference(img);
             img.recycle();
             return 'ok';
         }
@@ -602,7 +569,6 @@ var DriftGuard = {
         var img = safeCaptureScreen();
         if (!img) return 'ok';
         if (this.matchReference(img)) {
-            this.refreshReference(img);
             this.suspected = false;
             img.recycle();
             return 'ok';
@@ -615,7 +581,6 @@ var DriftGuard = {
         var img = safeCaptureScreen();
         if (!img) return 'ok';
         if (this.matchReference(img)) {
-            this.refreshReference(img);
             this.suspected = false;
             img.recycle();
             return 'ok';
@@ -632,7 +597,6 @@ var DriftGuard = {
         var img2 = safeCaptureScreen();
         if (img2) {
             if (this.matchReference(img2)) {
-                this.refreshReference(img2);
                 this.suspected = false;
                 img2.recycle();
                 return 'ok';
@@ -650,7 +614,6 @@ var DriftGuard = {
         var img3 = safeCaptureScreen();
         if (img3) {
             if (this.matchReference(img3)) {
-                this.refreshReference(img3);
                 this.suspected = false;
                 img3.recycle();
                 return 'ok';
@@ -664,16 +627,28 @@ var DriftGuard = {
             this.saveDebugImg(img3, '3_check3_' + stepName);
             img3.recycle();
         }
-        if (this.crossCompare()) {
-            var refreshImg = safeCaptureScreen();
-            if (refreshImg) {
-                this.refreshReference(refreshImg);
-                refreshImg.recycle();
-            }
-            this.suspected = false;
+        log('[DriftGuard] 确认画面偏移 (' + stepName + ')');
+        return 'drift';
+    },
+    checkWaitCenter: function () {
+        if (CTRL.settingsOpen || CTRL.paused || bubbleFlowActive) return 'ok';
+        var img = safeCaptureScreen();
+        if (!img) return 'ok';
+        if (this.matchReference(img)) {
+            img.recycle();
             return 'ok';
         }
-        log('[DriftGuard] 确认画面偏移 (' + stepName + ')');
+        img.recycle();
+        sleep(600);
+        var img2 = safeCaptureScreen();
+        if (!img2) return 'ok';
+        if (this.matchReference(img2)) {
+            img2.recycle();
+            return 'ok';
+        }
+        this.saveDebugImg(img2, 'wait_poll_drift');
+        img2.recycle();
+        log('[DriftGuard] 5秒常驻检测发现画面不在中心，触发重连回中');
         return 'drift';
     }
 };
@@ -904,9 +879,9 @@ function checkAndRunRanchTasks() {
 function runRanchFlow(mode, has_R1, has_R2, clickChop) {
     beginAction();
     bubbleFlowActive = true;
+    if (clickChop) { click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500); }
     if (has_R1) { click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400); }
-    if (has_R2) { click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(400); }
-    if (clickChop) { click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(800); }
+    if (has_R2) { click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(800); }
     pausableSleep(1000);
     click(CONFIG.build_R1[0], CONFIG.build_R1[1]); pausableSleep(1000);
     click(CONFIG.enter_R1[0], CONFIG.enter_R1[1]); pausableSleep(1500);
@@ -952,15 +927,14 @@ function runForcedFlows() {
         pausableSleep(500);
     }
     if (PANEL.RANCH_ENABLED) {
-        var r1 = false, r2 = false, chop = false;
+        var r1 = false, r2 = false;
         var imgR = safeCaptureScreen();
         if (imgR) {
             r1 = isBubblePresent(imgR, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
             r2 = isBubblePresent(imgR, CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]);
-            chop = isBubblePresent(imgR, CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]);
             imgR.recycle();
         }
-        runRanchFlow('force', r1, r2, chop);
+        runRanchFlow('force', r1, r2, true);
         clickSafeClose();
         pausableSleep(500);
     }
@@ -1015,7 +989,7 @@ CONFIG.exitGameBtn = [2222, 60];
 CONFIG.HOME_TARGET_COLOR = [162, 119, 64];
 CONFIG.HOME_TOLERANCE = 10;
 CONFIG.HOME_CHECK_REGIONS = {
-    "右上区域": { rect: [1850, 20, 460, 65], minPixels: 1000 },
+    "右上区域": { rect: [1850, 20, 460, 65], minPixels: 900 },
     "左侧区域": { rect: [110, 180, 100, 520], minPixels: 1000 },
     "底部区域": { rect: [1275, 945, 875, 90], minPixels: 3000 }
 };
@@ -1031,6 +1005,19 @@ CONFIG.sickleMenuRegion = [1100, 985, 240, 30];
 CONFIG.sickleMenuRegionTolerance = 15;
 CONFIG.sickleStateRegion = [1160, 816, 120, 80];
 CONFIG.sickleStateTolerance = 18;
+CONFIG.speedupBtnLeftRegion = [1100, 685, 50, 50];
+CONFIG.speedupBtnRightRegion = [1260, 685, 50, 50];
+CONFIG.speedupBtnColorRef = [160, 197, 94];
+CONFIG.speedupBtnUniformTolerance = 15;
+CONFIG.speedupBtnColorTolerance = 22;
+
+function isCropSpeedupPopupShowing(img) {
+    if (!img) return false;
+    return isRegionUniform(img, CONFIG.speedupBtnLeftRegion, CONFIG.speedupBtnUniformTolerance) &&
+           isRegionUniform(img, CONFIG.speedupBtnRightRegion, CONFIG.speedupBtnUniformTolerance) &&
+           regionMatchesRefColor(img, CONFIG.speedupBtnLeftRegion, CONFIG.speedupBtnColorRef, CONFIG.speedupBtnColorTolerance) &&
+           regionMatchesRefColor(img, CONFIG.speedupBtnRightRegion, CONFIG.speedupBtnColorRef, CONFIG.speedupBtnColorTolerance);
+}
 
 function saveFreezeDebugImg(label) {
     try {
@@ -1142,20 +1129,40 @@ function clickReconnectAndConfirm() {
     }
 }
 
+function getCropReadyAt() {
+    var crop = CROPS[currentCrop];
+    if (!crop || lastPlantTime <= 0) return 0;
+    return lastPlantTime + crop.cooldownSec * 1000 + CONFIG.readyBufferMs;
+}
+function isCropReadyNow() {
+    var readyAt = getCropReadyAt();
+    return readyAt <= 0 || Date.now() >= readyAt;
+}
+
+function extendWaitTimerForUnripeCrop(minRemainSec) {
+    var crop = CROPS[currentCrop] || CROPS.wheat;
+    var waitSec = Math.max(15, minRemainSec || 20);
+    var targetReadyAt = Date.now() + waitSec * 1000;
+    if (getCropReadyAt() < targetReadyAt) {
+        lastPlantTime = targetReadyAt - crop.cooldownSec * 1000 - CONFIG.readyBufferMs;
+    }
+    plantDone = true;
+}
+
 function recenterAndDetectState() {
     handleStationScreenIfPresent();
     click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
     sleepWithHeartbeat(5000);
 
-    var imgA = safeCaptureScreen();
-    var patchA = null;
-    if (imgA) {
-        patchA = images.clip(imgA, REF_REGION[0], REF_REGION[1], REF_REGION[2], REF_REGION[3]);
-        imgA.recycle();
-    }
-
     clickSafeClose();
     sleepWithHeartbeat(500);
+    DriftGuard.reset();
+
+    if (!isCropReadyNow()) {
+        var remainSec = Math.max(0, Math.round((getCropReadyAt() - Date.now()) / 1000));
+        log('[回中恢复] 距离上一轮作物成熟还有约 ' + remainSec + ' 秒，点SafeClose后原地等待');
+        return { mode: 'wait', menuAlreadyOpen: false };
+    }
 
     var imgBefore = safeCaptureScreen();
     var beforeSamples = imgBefore ? getRegionColorFingerprint(imgBefore) : null;
@@ -1163,13 +1170,18 @@ function recenterAndDetectState() {
 
     clickCenterTile(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
 
-    var elapsed = 0, popped = false;
+    var elapsed = 0, popped = false, speedupShowing = false;
     while (elapsed < 3000) {
         sleep(200);
         elapsed += 200;
         renewLock();
         var imgNow = safeCaptureScreen();
         if (imgNow) {
+            if (isCropSpeedupPopupShowing(imgNow)) {
+                speedupShowing = true;
+                imgNow.recycle();
+                break;
+            }
             if (beforeSamples) {
                 var afterSamples = getRegionColorFingerprint(imgNow);
                 var diffCount = 0;
@@ -1189,41 +1201,22 @@ function recenterAndDetectState() {
         }
     }
 
+    if (speedupShowing) {
+        log('[回中恢复] 检测到中间土地弹出“加速”（作物读秒未到），点SafeClose后原地等待');
+        clickSafeClose();
+        sleepWithHeartbeat(500);
+        extendWaitTimerForUnripeCrop(20);
+        return { mode: 'wait', menuAlreadyOpen: false };
+    }
+
     if (!popped) {
         clickSafeClose();
         sleepWithHeartbeat(500);
-        var imgChk = safeCaptureScreen();
-        if (imgChk) {
-            if (DriftGuard.matchReference(imgChk)) DriftGuard.refreshReference(imgChk);
-            imgChk.recycle();
-        }
-        DriftGuard.reset();
-        if (patchA) patchA.recycle();
         return { mode: 'harvest', menuAlreadyOpen: false };
     }
 
     sleep(350);
-    var imgB = safeCaptureScreen();
-    var sickleReady = true, sickleNow = false, recentered = false;
-    if (imgB) {
-        sickleReady = isRegionUniform(imgB, CONFIG.sickleStateRegion, CONFIG.sickleStateTolerance);
-        sickleNow = sickleReady;
-        if (patchA) {
-            try {
-                var searchRegion = [
-                    Math.max(REF_REGION[0] - DRIFT_SEARCH_MARGIN, 0),
-                    Math.max(REF_REGION[1] - DRIFT_SEARCH_MARGIN, 0),
-                    REF_REGION[2] + DRIFT_SEARCH_MARGIN * 2,
-                    REF_REGION[3] + DRIFT_SEARCH_MARGIN * 2
-                ];
-                recentered = !!findImage(imgB, patchA, { region: searchRegion, threshold: 0.85 });
-            } catch (e) {}
-        }
-        if (recentered) DriftGuard.refreshReference(imgB);
-        imgB.recycle();
-    }
-    if (patchA) patchA.recycle();
-    return { mode: 'harvest', menuAlreadyOpen: true, sickleNow: sickleNow };
+    return { mode: 'harvest', menuAlreadyOpen: true };
 }
 
 function handleFreezeRecovery(skipPhase1) {
@@ -1311,18 +1304,7 @@ function recoverFromFreeze(reasonLabel, kind) {
     } else {
         detectionResult = handleFreezeRecovery(false);
     }
-    var effMode = (detectionResult.mode === 'harvest' && plantDone) ? 'harvest' : 'plant';
-    var menuOpen = detectionResult.menuAlreadyOpen;
-    if (effMode === 'harvest') {
-        if (!menuOpen || !detectionResult.sickleNow) {
-            if (menuOpen) {
-                clickSafeClose();
-                sleepWithHeartbeat(500);
-            }
-            menuOpen = false;
-        }
-    }
-    return { mode: effMode, menuAlreadyOpen: menuOpen };
+    return { mode: detectionResult.mode, menuAlreadyOpen: detectionResult.menuAlreadyOpen };
 }
 
 // ================= 菜单弹出检测 =================
@@ -1331,7 +1313,8 @@ function getRegionColorFingerprint(img) {
     return sampleRegionColors(img, CONFIG.sickleMenuRegion, 40, 10);
 }
 function hasMenuPopped(img) {
-    if (!menuRefColors) return false;
+    if (!menuRefColors || !img) return false;
+    if (isCropSpeedupPopupShowing(img)) return false;
     var currentSamples = sampleRegionColors(img, CONFIG.sickleMenuRegion, 40, 10);
     var diffCount = 0;
     for (var i = 0; i < currentSamples.length; i++) {
@@ -1363,13 +1346,18 @@ function clickAndAwaitMenu(clickX, clickY, stepLabel) {
             imgRef.recycle();
         }
         clickCenterTile(clickX, clickY);
-        var elapsed = 0, popped = false;
+        var elapsed = 0, popped = false, speedupShowing = false;
         while (elapsed < 3000) {
             sleep(200);
             elapsed += 200;
             renewLock();
             var imgNow = safeCaptureScreen();
             if (imgNow) {
+                if (isCropSpeedupPopupShowing(imgNow)) {
+                    speedupShowing = true;
+                    imgNow.recycle();
+                    break;
+                }
                 if (hasMenuPopped(imgNow)) {
                     imgNow.recycle();
                     popped = true;
@@ -1377,6 +1365,13 @@ function clickAndAwaitMenu(clickX, clickY, stepLabel) {
                 }
                 imgNow.recycle();
             }
+        }
+        if (speedupShowing) {
+            toastLog('检测到作物读秒未到（弹出加速），点SafeClose后原地等待');
+            clickSafeClose();
+            pausableSleep(500);
+            extendWaitTimerForUnripeCrop(20);
+            throw new RecoveredCycleSignal('wait', false);
         }
         if (popped) {
             sleep(350);
@@ -1689,8 +1684,8 @@ function runCornFlow() {
 function plantAll(cropKey, menuAlreadyOpen) {
     CTRL.currentPhase = 'plant';
     currentCrop = cropKey;
-    lastPlantTime = Date.now();
     plantDone = false;
+    bubbleDetectSuspended = false;
 
     if (!menuAlreadyOpen) {
         clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'plant');
@@ -1698,6 +1693,7 @@ function plantAll(cropKey, menuAlreadyOpen) {
 
     toastLog("== 播种" + CROPS[cropKey].label + " ==");
     dragFarmLoop(CROPS[cropKey].plantKey);
+    lastPlantTime = Date.now();
     plantDone = true;
     pausableSleep(500);
     var driftResult = DriftGuard.softCheck('plant');
@@ -1820,6 +1816,10 @@ function waitReadyAndHarvest(forceNow) {
     var stopMs = Math.max(0, PANEL.BUBBLE_STOP_BEFORE_READY_SEC) * 1000;
     while (Date.now() < readyAt) {
         setActionInProgress(false);
+        if (DriftGuard.checkWaitCenter() === 'drift') {
+            var waitDriftRes = recoverFromFreeze('5秒常驻检测发现画面不在中心', 'drift');
+            throw new RecoveredCycleSignal(waitDriftRes.mode, waitDriftRes.menuAlreadyOpen);
+        }
         var remain = readyAt - Date.now();
         if (remain <= stopMs) {
             pausableSleep(remain);
@@ -1827,6 +1827,10 @@ function waitReadyAndHarvest(forceNow) {
         }
         pausableSleep(Math.min(pollMs, remain - stopMs));
         if (readyAt - Date.now() <= stopMs) continue;
+        if (DriftGuard.checkWaitCenter() === 'drift') {
+            var waitDriftRes2 = recoverFromFreeze('5秒常驻检测发现画面不在中心', 'drift');
+            throw new RecoveredCycleSignal(waitDriftRes2.mode, waitDriftRes2.menuAlreadyOpen);
+        }
         bubbleTick();
         if (readyAt - Date.now() > stopMs && fertileDue()) runFertileFlow('定时');
     }
@@ -1843,10 +1847,11 @@ function harvestAll(menuAlreadyOpen) {
         clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'harvest');
     }
     dragFarmLoop(CROPS[currentCrop].harvestKey);
-    unsoldStock[currentCrop] = true;
     pausableSleep(500);
     var result = DriftGuard.finalCheck('harvest');
     if (result === 'ok') {
+        unsoldStock[currentCrop] = true;
+        plantDone = false;
         consecutiveWarehouseFullRecoveries = 0;
         if (bubbleDetectSuspended) bubbleDetectSuspended = false;
         var imgStation = safeCaptureScreen();
@@ -1885,29 +1890,51 @@ function advanceRound() {
 }
 
 // ================= 暂停恢复与校准 UI =================
+var resumePromptWin = null;
+function closeResumePromptWin() {
+    if (!resumePromptWin) return;
+    try {
+        resumePromptWin.box.post(function () {
+            try {
+                resumePromptWin.box.setVisibility(8);
+                resumePromptWin.setPosition(-1000, -1000);
+            } catch (e) {}
+        });
+    } catch (e) {}
+}
+
 function handlePauseAndResume() {
     setActionInProgress(false);
     while (CTRL.paused) {
         sleep(200);
         renewLock();
     }
+    pauseTriggered = false;
     setActionInProgress(true);
-    var choice = pendingResumeChoice;
-    pendingResumeChoice = null;
     try {
-        if (choice === 'harvest') {
-            toastLog('10秒后开始收割，请确保下方镰刀图标已出现');
-            pausableSleep(10000);
-            refreshDriftReference();
-            skipWaitOnce = true;
-            skipToHarvestOnce = true;
+        pausableSleep(400);
+        clickSafeClose();
+        pausableSleep(500);
+        DriftGuard.reset();
+        bubbleDetectSuspended = false;
+        if (plantDone) {
+            if (!isCropReadyNow()) {
+                var remainSec = Math.max(0, Math.round((getCropReadyAt() - Date.now()) / 1000));
+                toastLog('读秒未到（剩余约' + remainSec + '秒），点SafeClose后继续等待');
+                skipToHarvestOnce = true;
+                skipWaitOnce = false;
+                pendingMenuAlreadyOpen = false;
+            } else {
+                toastLog('读秒已到，点SafeClose后点中间土地开始收割');
+                clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'resume_harvest');
+                skipToHarvestOnce = true;
+                skipWaitOnce = true;
+                pendingMenuAlreadyOpen = true;
+            }
         } else {
-            toastLog('10秒后开始种植，请确保已回到中心基准地');
-            pausableSleep(10000);
-            clickSafeClose();
-            pausableSleep(500);
-            refreshDriftReference();
+            toastLog('收割已完成，点SafeClose后进入种植流程');
             skipToHarvestOnce = false;
+            pendingMenuAlreadyOpen = false;
         }
     } catch (e2) {
         if (e2 instanceof PauseSignal) handlePauseAndResume();
@@ -2021,22 +2048,28 @@ function syncSettingsPanelToState() {
     if (PANEL.STATION_LOAD_ENABLED) setToggleOn(ctrlWin.stationLoadTgl); else setToggleOff(ctrlWin.stationLoadTgl);
 }
 function showResumeChoiceDialog() {
-    var actionClicked = null;
-    var dlg = dialogs.build({
-        title: "继续后，下一步做什么？",
-        content: "请选择恢复后要执行的动作，选“取消”则保持暂停",
-        positive: "种植",
-        negative: "收割",
-        neutral: "取消"
-    }).on("any", function (action) {
-        actionClicked = action;
+    if (!resumePromptWin) return;
+    var screenW = Math.max(device.width, device.height);
+    var screenH = Math.min(device.width, device.height);
+    resumePromptWin.box.post(function () {
+        try {
+            resumePromptWin.box.setVisibility(0);
+            var initX = Math.max(100, Math.round(screenW * 0.66));
+            var initY = Math.max(100, Math.round(screenH * 0.66));
+            resumePromptWin.setPosition(initX, initY);
+            resumePromptWin.box.post(function () {
+                try {
+                    var w = resumePromptWin.getWidth();
+                    var h = resumePromptWin.getHeight();
+                    if (w > 0 && h > 0) {
+                        var x = Math.max(100, screenW - w - 36);
+                        var y = Math.max(100, screenH - h - 36);
+                        resumePromptWin.setPosition(x, y);
+                    }
+                } catch (e) {}
+            });
+        } catch (e) {}
     });
-    dlg.show();
-    while (actionClicked == null) sleep(100);
-    if (actionClicked !== "positive" && actionClicked !== "negative") return;
-    pendingResumeChoice = (actionClicked === "positive") ? "plant" : "harvest";
-    CTRL.paused = false;
-    ctrlWin.ppBtn.post(function () { ctrlWin.ppBtn.setText(" ⏸ "); });
 }
 function createControlPanel() {
     ctrlWin = floaty.window(
@@ -2112,12 +2145,39 @@ function createControlPanel() {
             ctrlWin.panel.post(function () { ctrlWin.panel.setVisibility(0); });
         }
     });
+    resumePromptWin = floaty.window(
+        <vertical id="box" bg="#EE333333" padding="8" w="auto" h="auto" visibility="gone">
+            <text text="是否要继续流程？" textColor="#FFFFFF" textSize="13sp" gravity="center" paddingLeft="8" paddingRight="8" marginBottom="6"/>
+            <horizontal gravity="center">
+                <text id="btnCancel" text=" 取消 " textColor="#FFFFFF" textSize="13sp" bg="#666666" paddingLeft="14" paddingRight="14" paddingTop="6" paddingBottom="6" gravity="center" marginRight="10"/>
+                <text id="btnContinue" text=" 继续 " textColor="#FFFFFF" textSize="13sp" bg="#4CAF50" paddingLeft="14" paddingRight="14" paddingTop="6" paddingBottom="6" gravity="center"/>
+            </horizontal>
+        </vertical>
+    );
+    resumePromptWin.setPosition(-1000, -1000);
+    resumePromptWin.btnCancel.click(function () {
+        closeResumePromptWin();
+        toastLog("已取消，保持暂停");
+    });
+    resumePromptWin.btnContinue.click(function () {
+        closeResumePromptWin();
+        CTRL.paused = false;
+        if (ctrlWin) {
+            ctrlWin.ppBtn.post(function () { ctrlWin.ppBtn.setText(" ⏸ "); });
+        }
+    });
+
     ctrlWin.ppBtn.click(function () {
         if (CTRL.paused) {
-            threads.start(function () { showResumeChoiceDialog(); });
+            showResumeChoiceDialog();
         } else {
+            closeResumePromptWin();
             CTRL.paused = true;
+            pauseTriggered = true;
             ctrlWin.ppBtn.post(function () { ctrlWin.ppBtn.setText(" ▶ "); });
+            ctrlWin.setBtn.post(function () {
+                try { ctrlWin.setBtn.setTextColor(colors.parseColor("#CCCCCC")); } catch (e) {}
+            });
             toastLog("动作已暂停");
         }
     });
@@ -2346,10 +2406,11 @@ while (true) {
             skipWaitOnce = false;
             pendingMenuAlreadyOpen = false;
         } else if (e instanceof RecoveredCycleSignal) {
-            skipToHarvestOnce = (e.mode === 'harvest');
+            skipToHarvestOnce = (e.mode === 'harvest' || e.mode === 'wait');
+            skipWaitOnce = (e.mode === 'harvest');
             pendingMenuAlreadyOpen = e.menuAlreadyOpen;
-            bubbleDetectSuspended = true;
-            forceFlowsPending = true;
+            bubbleDetectSuspended = false;
+            forceFlowsPending = (e.mode !== 'wait');
         } else {
             toastLog("主循环异常：" + (e && e.message ? e.message : e));
             sleep(3000);
