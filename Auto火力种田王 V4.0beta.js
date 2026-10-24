@@ -297,11 +297,13 @@ var needSellMilk = false;
 var consecutiveWarehouseFullRecoveries = 0;
 var MAX_CONSECUTIVE_WAREHOUSE_FULL_RECOVERIES = 3;
 var chickenPartialSince = 0;
+var chickenLeftNoBubbleSince = Date.now();
+var chickenRightNoBubbleSince = Date.now();
+var CHICKEN_TIMEOUT_MS = 25 * 60 * 1000; // 鸡场双边气泡全断25分钟保底补料超时
 var ranchPartialSince = 0;
 var bubbleFlowActive = false;
 var bubbleDetectSuspended = false;
 var stationGoodsPending = false;
-var forceFlowsPending = false;
 var unsoldStock = { wheat: false, rice: false, soy: false, cane: false, corn: false };
 var plantDone = false;
 var pendingSellSince = 0;
@@ -779,11 +781,29 @@ function checkAndRunFarmTasks() {
     if (has_FT || has_FB || has_EL || has_ER) {
         log("鸡场气泡: FT=" + has_FT + " FB=" + has_FB + " EL=" + has_EL + " ER=" + has_ER);
     }
+
+    // ===== 左右鸡舍单独静默断供计时 =====
+    if (has_EL) {
+        chickenLeftNoBubbleSince = 0;
+    } else if (chickenLeftNoBubbleSince === 0) {
+        chickenLeftNoBubbleSince = Date.now();
+    }
+    if (has_ER) {
+        chickenRightNoBubbleSince = 0;
+    } else if (chickenRightNoBubbleSince === 0) {
+        chickenRightNoBubbleSince = Date.now();
+    }
+
     var fullChicken = has_FT && has_FB && has_EL && has_ER;
     var partialChicken = has_EL || has_ER;
     if (partialChicken || has_FT || has_FB) {
         DriftGuard.onBubblesFound('鸡场');
     }
+
+    var leftNoBubbleDur = chickenLeftNoBubbleSince > 0 ? (Date.now() - chickenLeftNoBubbleSince) : 0;
+    var rightNoBubbleDur = chickenRightNoBubbleSince > 0 ? (Date.now() - chickenRightNoBubbleSince) : 0;
+    var bothNoBubbleTimeout = (leftNoBubbleDur >= CHICKEN_TIMEOUT_MS && rightNoBubbleDur >= CHICKEN_TIMEOUT_MS);
+
     var mode = 'none';
     if (fullChicken) {
         mode = 'full';
@@ -797,6 +817,10 @@ function checkAndRunFarmTasks() {
             chickenPartialSince = 0;
             toastLog("鸡场气泡超时仍不齐，抢收");
         }
+    } else if (bothNoBubbleTimeout) {
+        mode = 'timeout_rescue';
+        chickenPartialSince = 0;
+        toastLog("【鸡场超时保底】双边气泡连续断供超25分钟，强制执行补料补产！");
     } else {
         chickenPartialSince = 0;
     }
@@ -807,6 +831,7 @@ function checkAndRunFarmTasks() {
 function runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER) {
     beginAction();
     bubbleFlowActive = true;
+    // 仅在真实检测到气泡时才点气泡，杜绝无气泡盲点导致误触植物或地块
     if (has_FB) { click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400); }
     if (has_FT) { click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400); }
     if (has_EL) { click(CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]); pausableSleep(400); }
@@ -822,15 +847,16 @@ function runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER) {
     for (var i2 = 0; i2 < PANEL.FACTORY_FEED_PULLS; i2++) pullFeedSafe(factX, factY);
     clickSafeClose(); pausableSleep(1000);
     click(CONFIG.build_CL[0], CONFIG.build_CL[1]); pausableSleep(1000);
-    click(CONFIG.enter_CL[0], CONFIG.enter_CL[1]); pausableSleep(1500);
-    gesture(1500, CONFIG.coopFeedIcon, CONFIG.coopChicken1, CONFIG.coopChicken6);
+    click(CONFIG.enter_CL[0], CONFIG.enter_CL[1]); pausableSleep(1800);
+    // 喂鸡手势：起始坐标停留停顿，确保抓起饲料碗，划经中间坐标确保6只鸡全吃到
+    gesture(1600, CONFIG.coopFeedIcon, CONFIG.coopFeedIcon, CONFIG.coopChicken1, [1230, 540], CONFIG.coopChicken6);
     pausableSleep(200);
     click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
     pausableSleep(400);
     clickSafeClose(); pausableSleep(1000);
     click(CONFIG.build_CR[0], CONFIG.build_CR[1]); pausableSleep(1000);
-    click(CONFIG.enter_CR[0], CONFIG.enter_CR[1]); pausableSleep(1500);
-    gesture(1500, CONFIG.coopFeedIcon, CONFIG.coopChicken1, CONFIG.coopChicken6);
+    click(CONFIG.enter_CR[0], CONFIG.enter_CR[1]); pausableSleep(1800);
+    gesture(1600, CONFIG.coopFeedIcon, CONFIG.coopFeedIcon, CONFIG.coopChicken1, [1230, 540], CONFIG.coopChicken6);
     pausableSleep(200);
     click(CONFIG.coopPopupSafeClick[0], CONFIG.coopPopupSafeClick[1]);
     pausableSleep(400);
@@ -840,6 +866,10 @@ function runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER) {
     pausableSleep(1000);
     needSellEggs = true;
     bubbleFlowActive = false;
+    // 鸡刚喂上，重置静默断供计时（开启新的20分钟生产周期）
+    chickenLeftNoBubbleSince = Date.now();
+    chickenRightNoBubbleSince = Date.now();
+    chickenPartialSince = 0;
     return mode;
 }
 
@@ -910,35 +940,6 @@ function runRanchFlow(mode, has_R1, has_R2, clickChop) {
     return mode;
 }
 
-function runForcedFlows() {
-    log('[断线恢复] 强制各跑一次鸡场/马场流程');
-    if (PANEL.CHICKEN_ENABLED) {
-        var ft = false, fb = false, el = false, er = false;
-        var imgC = safeCaptureScreen();
-        if (imgC) {
-            ft = isBubblePresent(imgC, CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]);
-            fb = isBubblePresent(imgC, CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]);
-            el = isBubblePresent(imgC, CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]);
-            er = isBubblePresent(imgC, CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]);
-            imgC.recycle();
-        }
-        runChickenFlow('force', ft, fb, el, er);
-        clickSafeClose();
-        pausableSleep(500);
-    }
-    if (PANEL.RANCH_ENABLED) {
-        var r1 = false, r2 = false;
-        var imgR = safeCaptureScreen();
-        if (imgR) {
-            r1 = isBubblePresent(imgR, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
-            r2 = isBubblePresent(imgR, CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]);
-            imgR.recycle();
-        }
-        runRanchFlow('force', r1, r2, true);
-        clickSafeClose();
-        pausableSleep(500);
-    }
-}
 
 // ================= 驿站出货与画面兜底 =================
 CONFIG.stationGoodsCheckPoint = [2067, 910];
@@ -1807,10 +1808,7 @@ function waitReadyAndHarvest(forceNow) {
     pausableSleep(500);
     log('[等待] ' + crop.label + ' 剩余约 ' + Math.max(0, Math.round((readyAt - Date.now()) / 1000)) + ' 秒');
 
-    if (forceFlowsPending && Date.now() < readyAt) {
-        runForcedFlows();
-        forceFlowsPending = false;
-    }
+
 
     var pollMs = Math.max(1, PANEL.BUBBLE_POLL_SEC) * 1000;
     var stopMs = Math.max(0, PANEL.BUBBLE_STOP_BEFORE_READY_SEC) * 1000;
@@ -2410,7 +2408,6 @@ while (true) {
             skipWaitOnce = (e.mode === 'harvest');
             pendingMenuAlreadyOpen = e.menuAlreadyOpen;
             bubbleDetectSuspended = false;
-            forceFlowsPending = (e.mode !== 'wait');
         } else {
             toastLog("主循环异常：" + (e && e.message ? e.message : e));
             sleep(3000);
