@@ -16,6 +16,7 @@ var PANEL = {
     CHICKEN_ENABLED: 1,               // 1=开启鸡场，0=关闭
     RANCH_ENABLED: 1,                 // 1=开启马场，0=关闭
     STATION_LOAD_ENABLED: 1,          // 1=驿站顺带点装载，0=只收货
+    STATION_FERTILE_CHECK_ENABLED: 1, // 1=良田脱手后静默检测驿站绿点（需开启良田），0=只在收割后检测
     BUBBLE_POLL_SEC: 5,               // 气泡检测间隔秒数
     BUBBLE_STOP_BEFORE_READY_SEC: 20, // 成熟前停止气泡检测秒数
     PARTIAL_GRACE_SEC: 30,            // 气泡不齐宽限秒数（超时抢收）
@@ -271,7 +272,8 @@ var FERTILE = {
     BACK_WAIT_MS: 1000,
     HOLD_PTS: 7,
     MOVE_STEPS: 10,
-    MS_PER_PT: 25
+    MS_PER_PT: 25,
+    STATION_CHECK_DELAY_MS: 200       // 小麦脱手后等多久再截屏看驿站绿点（等底部菜单渲染稳定）
 };
 var fertileLastPlantTime = 0;
 
@@ -1522,6 +1524,17 @@ function fertileDue() {
     if (fertileLastPlantTime === 0) return true;
     return Date.now() - fertileLastPlantTime >= PANEL.FERTILE_INTERVAL_SEC * 1000;
 }
+// 良田里小麦脱手后、点回中之前：底部菜单此时可见，静默截屏看驿站绿点（不写日志）
+function silentCheckStationInFertile() {
+    if (!PANEL.STATION_FERTILE_CHECK_ENABLED) return false;
+    sleep(FERTILE.STATION_CHECK_DELAY_MS);
+    var img = safeCaptureScreen();
+    if (!img) return false;
+    var has = false;
+    try { has = checkStationHasGoods(img); } catch (e) {}
+    img.recycle();
+    return has;
+}
 function runFertileFlow(reason) {
     beginAction();
     log('[良田] 开始（' + reason + '）');
@@ -1534,14 +1547,18 @@ function runFertileFlow(reason) {
     sleep(FERTILE.AFTER_TRIPLE_MS);
     fertilePlantWheat();
     fertileLastPlantTime = Date.now();
+    // 脱手后、回中前：静默检测驿站绿点；有货则先记为待收，回中后立刻处理
+    if (silentCheckStationInFertile()) stationGoodsPending = true;
     if (cornDue()) {
         runCornFlow();
+        if (stationGoodsPending) collectStationGoods();
         return;
     }
     click(FERTILE.BACK_BTN[0], FERTILE.BACK_BTN[1]);
     pausableSleep(FERTILE.BACK_WAIT_MS);
     clickSafeClose();
     pausableSleep(500);
+    if (stationGoodsPending) collectStationGoods();
 }
 
 // ================= [上方新田地] 玉米流程 =================
