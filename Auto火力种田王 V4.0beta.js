@@ -2386,13 +2386,17 @@ while (true) {
             pendingMenuAlreadyOpen = false;
             plantAll(round.crop, menuAlreadyOpenP);
             if (!sellsDoneThisRound) {
+                var fertileOff = !PANEL.FERTILE_ENABLED;
                 if (round.keepStock) {
                     for (var ks = 0; ks < round.keepStock.length; ks++) {
-                        unsoldStock[round.keepStock[ks]] = false;
-                        log('[轮种] ' + CROPS[round.keepStock[ks]].label + ' 本轮留存不卖');
+                        var ksKey = round.keepStock[ks];
+                        if (fertileOff && ksKey === 'wheat') continue;
+                        unsoldStock[ksKey] = false;
+                        log('[轮种] ' + CROPS[ksKey].label + ' 本轮留存不卖');
                     }
                 }
-                runWarehouseSells(round.sells, true, '第' + dispCycle + '次循环种完卖货');
+                var sellList = fertileOff ? round.sells.concat([['wheat', 1]]) : round.sells;
+                runWarehouseSells(sellList, true, '第' + dispCycle + '次循环种完卖货');
                 sellsDoneThisRound = true;
             }
             clickSafeClose();
