@@ -1,4 +1,4 @@
-//Auto火力种田王 - 日常多功能辅助脚本（良田独立挂机 + 小麦/水稻/大豆/玉米/南瓜 手动单次种收）
+//Auto火力种田王 - 日常多功能辅助脚本（良田独立挂机 + 小麦/水稻/大豆/玉米/南瓜 手动单次种收 + 作物成熟闪烁提醒）
 
 auto.waitFor();
 floaty.closeAll();
@@ -36,6 +36,29 @@ var STATE = {
     mode: 'fertile',           // 'fertile' | 'wheat' | 'rice' | 'soy' | 'corn' | 'pumpkin'
     pendingAction: null        // 'plant' | 'harvest' | null
 };
+
+// ================= 成熟计时器（独立于挡位） =================
+var TIMER = {
+    // 各作物成熟时间（秒）
+    DURATIONS: { wheat: 110, rice: 290, soy: 590, corn: 3590, pumpkin: 7190 },
+    crop: null,        // 当前正在计时的作物
+    readyAt: 0,        // 成熟的时间戳（毫秒）
+    ringing: false     // 是否已成熟、正在闪烁提醒
+};
+
+function startCropTimer(crop) {
+    var sec = TIMER.DURATIONS[crop];
+    if (!sec) return;
+    TIMER.crop = crop;
+    TIMER.readyAt = Date.now() + sec * 1000;
+    TIMER.ringing = false;
+}
+
+function clearCropTimer() {
+    TIMER.crop = null;
+    TIMER.readyAt = 0;
+    TIMER.ringing = false;
+}
 
 // ================= 权限校验 =================
 try {
@@ -325,6 +348,42 @@ ctrlWin.ppBtn.click(function () {
 syncUI();
 toastLog("日常多挡辅助脚本已就绪：点 ⚙ 可换挡，点 ▶ 开始");
 
+// ================= 成熟提醒线程：时间到后让挡位文字持续闪烁 =================
+// 独立线程运行，不受挡位切换、暂停、良田挂机/主循环阻塞的影响
+threads.start(function () {
+    var COLOR_NORMAL = "#FFD54F";   // 平时的颜色
+    var COLOR_ON = "#FF1744";       // 闪烁亮
+    var COLOR_OFF = "#444444";      // 闪烁暗
+    var blinkOn = false;
+    var wasRinging = false;
+
+    function setModeColor(c) {
+        ctrlWin.modeTxt.post(function () {
+            try { ctrlWin.modeTxt.setTextColor(colors.parseColor(c)); } catch (e) {}
+        });
+    }
+
+    while (true) {
+        // 到点 -> 开始提醒（只触发一次）
+        if (TIMER.crop && !TIMER.ringing && Date.now() >= TIMER.readyAt) {
+            TIMER.ringing = true;
+            toastLog(modeLabel(TIMER.crop) + "成熟了，该收割啦！");
+        }
+
+        if (TIMER.ringing) {
+            blinkOn = !blinkOn;
+            setModeColor(blinkOn ? COLOR_ON : COLOR_OFF);
+            wasRinging = true;
+        } else if (wasRinging) {
+            // 收割后：恢复正常颜色
+            setModeColor(COLOR_NORMAL);
+            wasRinging = false;
+            blinkOn = false;
+        }
+        sleep(450);
+    }
+});
+
 // ================= 主工作循环 =================
 while (true) {
     try {
@@ -361,10 +420,18 @@ while (true) {
             STATE.pendingAction = null;
             if (act === 'plant' || act === 'harvest') {
                 pausableSleep(500); // 留出弹窗收起时间
-                var loopKey = (act === 'harvest') ? 'sickle' : STATE.mode;
-                toastLog("开始" + (act === 'harvest' ? "收割" : ("播种" + modeLabel(STATE.mode))) + "...");
+                var curMode = STATE.mode;
+                var loopKey = (act === 'harvest') ? 'sickle' : curMode;
+                toastLog("开始" + (act === 'harvest' ? "收割" : ("播种" + modeLabel(curMode))) + "...");
                 dragFarmLoop(loopKey);
-                toastLog((act === 'harvest' ? "收割" : (modeLabel(STATE.mode) + "播种")) + "完成！");
+                toastLog((act === 'harvest' ? "收割" : (modeLabel(curMode) + "播种")) + "完成！");
+
+                // ===== 计时器联动 =====
+                if (act === 'harvest') {
+                    clearCropTimer();          // 收割：清除计时与闪烁
+                } else {
+                    startCropTimer(curMode);   // 种植完成：开始计时该作物
+                }
             }
             // 单次动作完成后自动切回暂停状态，等待下一次点击
             STATE.paused = true;
