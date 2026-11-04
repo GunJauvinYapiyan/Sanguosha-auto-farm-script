@@ -1714,6 +1714,8 @@ function plantAll(cropKey, menuAlreadyOpen) {
     lastPlantTime = Date.now();
     plantDone = true;
     pausableSleep(500);
+    clickSafeClose();
+    pausableSleep(500);
     var driftResult = DriftGuard.softCheck('plant');
     if (driftResult === 'warehouseFull') {
         handleWarehouseFullOrFallback('plant-softCheck', false);
@@ -1862,6 +1864,8 @@ function harvestAll(menuAlreadyOpen) {
         clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'harvest');
     }
     dragFarmLoop(CROPS[currentCrop].harvestKey);
+    pausableSleep(500);
+    clickSafeClose();
     pausableSleep(500);
     var result = DriftGuard.finalCheck('harvest');
     if (result === 'ok') {
