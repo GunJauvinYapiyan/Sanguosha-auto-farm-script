@@ -25,7 +25,7 @@ var PANEL = {
     SELL_ONLY_AFTER_HARVEST: 1,       // 1=仅出售收割后未卖过的存货
     EGG_MILK_BATCH_WAIT_SEC: 40,      // 鸡蛋/马奶合并变卖等待秒数
     FERTILE_ENABLED: 1,               // 1=开启良田小麦流程
-    FERTILE_INTERVAL_SEC: 120,        // 良田收种间隔秒数
+    FERTILE_INTERVAL_SEC: 121,        // 良田收种间隔秒数
     FERTILE_EXTRA_WHEAT_SELLS: 2,     // 卖鸡蛋那趟仓库顺带卖小麦次数（固定消化小麦，主轮种表不再卖小麦）
     CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程
     LOBBY_ENTER_FARM_BTN: [175, 645]
