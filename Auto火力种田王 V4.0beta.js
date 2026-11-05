@@ -1565,7 +1565,7 @@ function runFertileFlow(reason) {
 var CORN = {
     ENTER_BTN: [2036, 160],
     ENTER_WAIT_MS: 1000,
-    BACK_BTN: [1426, 1052],
+    BACK_BTN: [1405, 1054],
     BACK_WAIT_MS: 1000,
     INTERVAL_SEC: 3600,
     SEED_ICON: [1480, 910],
@@ -1699,6 +1699,17 @@ function runCornFlow() {
 }
 
 // ================= 主田种收与等待巡检 =================
+function spamSafeCloseForWheatRice(stageLabel) {
+    if (currentCrop !== 'wheat' && currentCrop !== 'rice') return;
+    log('[弹窗消除] ' + stageLabel + ' 结束，开始连点右下角 SafeClose 持续 5 秒');
+    var endAt = Date.now() + 5000;
+    while (Date.now() < endAt) {
+        clickSafeClose();
+        pausableSleep(250);
+    }
+    pausableSleep(300);
+}
+
 function plantAll(cropKey, menuAlreadyOpen) {
     CTRL.currentPhase = 'plant';
     currentCrop = cropKey;
@@ -1714,8 +1725,7 @@ function plantAll(cropKey, menuAlreadyOpen) {
     lastPlantTime = Date.now();
     plantDone = true;
     pausableSleep(500);
-    clickSafeClose();
-    pausableSleep(500);
+    spamSafeCloseForWheatRice('播种' + CROPS[cropKey].label);
     var driftResult = DriftGuard.softCheck('plant');
     if (driftResult === 'warehouseFull') {
         handleWarehouseFullOrFallback('plant-softCheck', false);
@@ -1865,8 +1875,7 @@ function harvestAll(menuAlreadyOpen) {
     }
     dragFarmLoop(CROPS[currentCrop].harvestKey);
     pausableSleep(500);
-    clickSafeClose();
-    pausableSleep(500);
+    spamSafeCloseForWheatRice('收割' + CROPS[currentCrop].label);
     var result = DriftGuard.finalCheck('harvest');
     if (result === 'ok') {
         unsoldStock[currentCrop] = true;
