@@ -258,9 +258,11 @@ CONFIG.LOOP_COUNT = 3;
 var FERTILE = {
     ENTER_BTN: [60, 480],
     BACK_BTN: [2200, 570],
+    SAFE_CLOSE: null,                 // 良田专属SafeClose坐标（启动时手动校准并持久化保存）
     ENTER_WAIT_MS: 500,
     TRIPLE_GAP_MS: 80,
     AFTER_TRIPLE_MS: 120,
+    STEP_GAP_MS: 200,                 // 良田内点SafeClose与重选土地的间隔毫秒数（0.2秒）
     BACK_WAIT_MS: 1000,
     HOLD_PTS: 7,
     MOVE_STEPS: 10,
@@ -402,6 +404,7 @@ function clickCenterTile(x, y) {
 var calibStorage = storages.create('wheat_farm_calib');
 var chickenCalibrated = !!calibStorage.get('chickenCalibrated', false);
 var ranchCalibrated = !!calibStorage.get('ranchCalibrated', false);
+var fertileCalibrated = !!calibStorage.get('fertileCalibrated', false);
 if (chickenCalibrated) {
     CONFIG.eggSlotInWarehouse = calibStorage.get('eggSlot', null);
     CONFIG.eggSellBtn = calibStorage.get('eggBtn', null);
@@ -409,6 +412,9 @@ if (chickenCalibrated) {
 if (ranchCalibrated) {
     CONFIG.milkSlotInWarehouse = calibStorage.get('milkSlot', null);
     CONFIG.milkSellBtn = calibStorage.get('milkBtn', null);
+}
+if (fertileCalibrated) {
+    FERTILE.SAFE_CLOSE = calibStorage.get('fertileSafeClose', null);
 }
 var ctrlWin = null;
 var referencePatch = null;
@@ -1636,6 +1642,10 @@ function reconnectAndRecenterForFertile(reasonLabel) {
     sleepWithHeartbeat(500);
     DriftGuard.reset();
 }
+function clickFertileSafeClose() {
+    var pt = FERTILE.SAFE_CLOSE || CONFIG.SAFE_CLOSE;
+    click(pt[0], pt[1]);
+}
 function doSingleFertileHarvestAndPlant() {
     click(FERTILE.ENTER_BTN[0], FERTILE.ENTER_BTN[1]);
     pausableSleep(FERTILE.ENTER_WAIT_MS);
@@ -1643,11 +1653,19 @@ function doSingleFertileHarvestAndPlant() {
         click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
         if (i < 2) sleep(FERTILE.TRIPLE_GAP_MS);
     }
-    sleep(FERTILE.AFTER_TRIPLE_MS);
+    sleep(FERTILE.STEP_GAP_MS);
+    // 多击收割后先点一次良田SafeClose消除可能弹出的书帖弹窗，再点中间土地重新呼出播种菜单
+    clickFertileSafeClose();
+    sleep(FERTILE.STEP_GAP_MS);
+    click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
+    sleep(FERTILE.STEP_GAP_MS);
     fertilePlantWheat();
     fertileLastPlantTime = Date.now();
-    // 脱手后、回中前：静默检测驿站绿点；有货则先记为待收，回中后立刻处理
+    // 脱手后、回中前：静默检测驿站绿点（内部已含200ms延迟）；随后点良田SafeClose消除播种可能触发的弹窗，再回中
     if (silentCheckStationInFertile()) stationGoodsPending = true;
+    else sleep(FERTILE.STEP_GAP_MS);
+    clickFertileSafeClose();
+    sleep(FERTILE.STEP_GAP_MS);
     click(FERTILE.BACK_BTN[0], FERTILE.BACK_BTN[1]);
     pausableSleep(FERTILE.BACK_WAIT_MS);
     clickSafeClose();
@@ -2385,8 +2403,25 @@ function createControlPanel() {
         }
     });
     ctrlWin.fertileTgl.click(function () {
-        PANEL.FERTILE_ENABLED = PANEL.FERTILE_ENABLED ? 0 : 1;
-        if (PANEL.FERTILE_ENABLED) setToggleOn(ctrlWin.fertileTgl); else setToggleOff(ctrlWin.fertileTgl);
+        if (PANEL.FERTILE_ENABLED) {
+            PANEL.FERTILE_ENABLED = 0;
+            setToggleOff(ctrlWin.fertileTgl);
+        } else {
+            threads.start(function () {
+                if (!fertileCalibrated) {
+                    forceCloseSettingsPanel();
+                    CTRL.paused = true;
+                    ctrlWin.ppBtn.post(function () { ctrlWin.ppBtn.setText(" ▶ "); });
+                    sleep(600);
+                    FERTILE.SAFE_CLOSE = calibrateAndVerify("进入良田界面，把红十字拖到良田SafeClose空白位置（用于消除弹窗），再点"确定这里"");
+                    fertileCalibrated = true;
+                    calibStorage.put('fertileSafeClose', FERTILE.SAFE_CLOSE);
+                    calibStorage.put('fertileCalibrated', true);
+                }
+                PANEL.FERTILE_ENABLED = 1;
+                setToggleOn(ctrlWin.fertileTgl);
+            });
+        }
     });
     ctrlWin.cornTgl.click(function () {
         PANEL.CORN_ENABLED = PANEL.CORN_ENABLED ? 0 : 1;
@@ -2497,12 +2532,13 @@ if (!checkPermission) {
     releaseLock(); exit();
 }
 sleep(1000);
-if (chickenCalibrated || ranchCalibrated) {
-    var keepCalib = dialogs.confirm("发现历史坐标", "是否继续使用上次保存的鸡蛋/马奶位置？\n【确定】直接使用\n【取消】重新校准");
+if (chickenCalibrated || ranchCalibrated || fertileCalibrated) {
+    var keepCalib = dialogs.confirm("发现历史坐标", "是否继续使用上次保存的鸡蛋/马奶/良田SafeClose位置？\n【确定】直接使用\n【取消】重新校准");
     if (!keepCalib) {
         calibStorage.clear();
         chickenCalibrated = false;
         ranchCalibrated = false;
+        fertileCalibrated = false;
         sleep(500);
     }
 }
@@ -2521,6 +2557,12 @@ if (PANEL.RANCH_ENABLED && !ranchCalibrated) {
     calibStorage.put('milkSlot', CONFIG.milkSlotInWarehouse);
     calibStorage.put('milkBtn', CONFIG.milkSellBtn);
     calibStorage.put('ranchCalibrated', true);
+}
+if (PANEL.FERTILE_ENABLED && !fertileCalibrated) {
+    FERTILE.SAFE_CLOSE = calibrateAndVerify("进入良田界面，把红十字拖到良田SafeClose空白位置（用于消除弹窗），再点\"确定这里\"");
+    fertileCalibrated = true;
+    calibStorage.put('fertileSafeClose', FERTILE.SAFE_CLOSE);
+    calibStorage.put('fertileCalibrated', true);
 }
 
 (function validateSchedule() {
