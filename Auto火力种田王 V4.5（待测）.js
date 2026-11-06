@@ -2413,7 +2413,7 @@ function createControlPanel() {
                     CTRL.paused = true;
                     ctrlWin.ppBtn.post(function () { ctrlWin.ppBtn.setText(" ▶ "); });
                     sleep(600);
-                    FERTILE.SAFE_CLOSE = calibrateAndVerify("进入良田界面，把红十字拖到良田SafeClose空白位置（用于消除弹窗），再点"确定这里"");
+                    FERTILE.SAFE_CLOSE = calibrateAndVerify("进入良田界面，把红十字拖到良田SafeClose空白位置（用于消除弹窗），再点\"确定这里\"");
                     fertileCalibrated = true;
                     calibStorage.put('fertileSafeClose', FERTILE.SAFE_CLOSE);
                     calibStorage.put('fertileCalibrated', true);
