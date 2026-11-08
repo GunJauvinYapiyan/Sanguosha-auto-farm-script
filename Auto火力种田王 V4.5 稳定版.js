@@ -20,10 +20,10 @@ var PANEL = {
     STATION_LOAD_ENABLED: 1,          // 1=驿站顺带点装载，0=只收货
     BUBBLE_POLL_SEC: 5,               // 气泡检测间隔秒数
     FERTILE_INTERVAL_SEC: 120,        // 良田收种间隔秒数（良田默认常驻开启）
-    CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程
+    CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程，0=关闭
     LOBBY_ENTER_FARM_BTN: [215, 645], // 屯田回城坐标
     HOME_CHECK_REGIONS: { "右上区域": { rect: [1850, 20, 460, 65], minPixels: 900 }, "左侧区域": { rect: [110, 180, 100, 520], minPixels: 1000 }, "底部区域": { rect: [1275, 945, 875, 90], minPixels: 3000 } } // 主页UI检测
-};
+}; // 主页UI检测
 
 // ==================== 轮种表（稳定版：前6轮稻-豆-蔗循环 + 第7轮1次水稻 + 纯玉米无限循环） ====================
 // 规则说明：
