@@ -1629,7 +1629,7 @@ function handleWarehouseFullDuringHarvest() {
 
     // 2. 大豆变卖判定：
     //    - 甘蔗流程爆仓：前5轮大豆已卖过2次，不再卖大豆；第6轮大豆有1轮存量，只卖1次大豆
-    //    - 大豆/水稻/玉米流程爆仓：卖2次大豆
+    //    - 大豆/水稻流程爆仓：卖2次大豆
     if (currentCrop === 'soy' || currentCrop === 'rice') {
         items.push(cropSellItem('soy', 2));
     } else if (currentCrop === 'cane' && curCycle === 6) {
