@@ -86,9 +86,10 @@ function getCurrentCycleStartIdx(idx) {
 }
 
 // 爆仓分场景变卖规则（详见 handleWarehouseFullDuringHarvest 与 handleStationWarehouseFull）：
-//   - 大豆/玉米爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 → 大豆×2（跳过小麦、水稻）
+//   - 大豆爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 → 大豆×2（跳过小麦、水稻）
 //   - 甘蔗爆仓：前5轮不卖大豆（马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2）；第6轮大豆有存量则大豆只卖1次
 //   - 水稻爆仓：稳定版（及极限版无鸡场）加卖水稻×1；极限版有鸡场跳过小麦和水稻；且暂停马场直至大豆收割变卖并种完甘蔗
+//   - 玉米爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 （跳过小麦、水稻、大豆）
 //   - 驿站收货爆仓：右下角连点3次 → 仓库卖马奶×1、鸡蛋×1、玉米×1、甘蔗×1 → 回中间土地继续点驿站收货并装载
 
 // ================= 调试截图与实例锁 =================
@@ -1628,18 +1629,15 @@ function handleWarehouseFullDuringHarvest() {
 
     // 2. 大豆变卖判定：
     //    - 甘蔗流程爆仓：前5轮大豆已卖过2次，不再卖大豆；第6轮大豆有1轮存量，只卖1次大豆
-    //    - 大豆/水稻/玉米流程爆仓：卖2次大豆（后续常规变卖被覆盖，不会叠加成4次）
-    if (currentCrop === 'cane') {
-        if (curCycle === 6) {
-            items.push(cropSellItem('soy', 1));
-        }
-    } else {
+    //    - 大豆/水稻/玉米流程爆仓：卖2次大豆
+    if (currentCrop === 'soy' || currentCrop === 'rice') {
         items.push(cropSellItem('soy', 2));
+    } else if (currentCrop === 'cane' && curCycle === 6) {
+        items.push(cropSellItem('soy', 1));
     }
 
     // 3. 水稻变卖判定：
-    //    - 稳定版（或极限版关闭鸡场时）在水稻流程爆仓：按原计划卖1次水稻（后续常规变卖被覆盖，不会卖成2次）
-    //    - 极限版开启鸡场时：跳过小麦和水稻变卖
+    //    - 水稻流程爆仓：按原计划卖1次水稻
     if (currentCrop === 'rice' && (!IS_VERSION_2_NO_RICE_SELL || !PANEL.CHICKEN_ENABLED)) {
         items.push(cropSellItem('rice', 1));
     }
