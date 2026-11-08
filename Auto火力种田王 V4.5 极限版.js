@@ -20,10 +20,10 @@ var PANEL = {
     STATION_LOAD_ENABLED: 1,          // 1=驿站顺带点装载，0=只收货
     BUBBLE_POLL_SEC: 5,               // 气泡检测间隔秒数
     FERTILE_INTERVAL_SEC: 120,        // 良田收种间隔秒数（良田默认常驻开启）
-    CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程
+    CORN_ENABLED: 1,                  // 1=开启上方新田地玉米流程，0=关闭
     LOBBY_ENTER_FARM_BTN: [215, 645], // 屯田回城坐标
     HOME_CHECK_REGIONS: { "右上区域": { rect: [1850, 20, 460, 65], minPixels: 900 }, "左侧区域": { rect: [110, 180, 100, 520], minPixels: 1000 }, "底部区域": { rect: [1275, 945, 875, 90], minPixels: 3000 } } // 主页UI检测
-};
+}; // 主页UI检测
 
 // ==================== 轮种表（极限版：有鸡场时水稻仅种1/2/3/5/7五轮且全程不卖；无鸡场时同稳定版） ====================
 // 规则说明：
@@ -89,9 +89,10 @@ function getCurrentCycleStartIdx(idx) {
 }
 
 // 爆仓分场景变卖规则（详见 handleWarehouseFullDuringHarvest 与 handleStationWarehouseFull）：
-//   - 大豆/玉米爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 → 大豆×2（跳过小麦、水稻）
+//   - 大豆爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 → 大豆×2（跳过小麦、水稻）
 //   - 甘蔗爆仓：前5轮不卖大豆（马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2）；第6轮大豆有存量则大豆只卖1次
 //   - 水稻爆仓：稳定版（及极限版无鸡场）加卖水稻×1；极限版有鸡场跳过小麦和水稻；且暂停马场直至大豆收割变卖并种完甘蔗
+//   - 玉米爆仓：马奶×1 → 鸡蛋×1 → 玉米×1 → 甘蔗×2 （跳过小麦、水稻、大豆）
 //   - 驿站收货爆仓：右下角连点3次 → 仓库卖马奶×1、鸡蛋×1、玉米×1、甘蔗×1 → 回中间土地继续点驿站收货并装载
 
 // ================= 调试截图与实例锁 =================
@@ -1631,18 +1632,15 @@ function handleWarehouseFullDuringHarvest() {
 
     // 2. 大豆变卖判定：
     //    - 甘蔗流程爆仓：前5轮大豆已卖过2次，不再卖大豆；第6轮大豆有1轮存量，只卖1次大豆
-    //    - 大豆/水稻/玉米流程爆仓：卖2次大豆（后续常规变卖被覆盖，不会叠加成4次）
-    if (currentCrop === 'cane') {
-        if (curCycle === 6) {
-            items.push(cropSellItem('soy', 1));
-        }
-    } else {
+    //    - 大豆/水稻流程爆仓：卖2次大豆
+    if (currentCrop === 'soy' || currentCrop === 'rice') {
         items.push(cropSellItem('soy', 2));
+    } else if (currentCrop === 'cane' && curCycle === 6) {
+        items.push(cropSellItem('soy', 1));
     }
 
     // 3. 水稻变卖判定：
-    //    - 稳定版（或极限版关闭鸡场时）在水稻流程爆仓：按原计划卖1次水稻（后续常规变卖被覆盖，不会卖成2次）
-    //    - 极限版开启鸡场时：跳过小麦和水稻变卖
+    //    - 开启鸡场时：跳过小麦和水稻变卖
     if (currentCrop === 'rice' && (!IS_VERSION_2_NO_RICE_SELL || !PANEL.CHICKEN_ENABLED)) {
         items.push(cropSellItem('rice', 1));
     }
