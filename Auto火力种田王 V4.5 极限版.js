@@ -2505,6 +2505,8 @@ try {
     toastLog("没有悬浮窗权限，请开启后重试");
     releaseLock(); exit();
 }
+waitForLandscape();
+setScreenMetrics(2412, 1080);
 toastLog("即将请求截屏权限，请点击允许");
 var checkPermission = false;
 try { checkPermission = requestScreenCapture(); } catch (e) {}
