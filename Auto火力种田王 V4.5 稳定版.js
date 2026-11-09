@@ -255,7 +255,7 @@ var FERTILE = {
     ENTER_WAIT_MS: 500,
     TRIPLE_GAP_MS: 80,
     AFTER_TRIPLE_MS: 120,
-    STEP_GAP_MS: 200,                 // 良田内点SafeClose与重选土地的间隔毫秒数（0.2秒）
+    STEP_GAP_MS: 300,                 // 良田内点SafeClose与重选土地的间隔毫秒数（0.3秒）
     BACK_WAIT_MS: 1000,
     HOLD_PTS: 7,
     MOVE_STEPS: 10,
@@ -1711,7 +1711,7 @@ function runFertileFlow(reason) {
     sleep(FERTILE.STEP_GAP_MS);
     fertilePlantWheat();
     fertileLastPlantTime = Date.now();
-    // 脱手后、回中前：静默检测驿站绿点（内部含200ms延迟）；随后点良田SafeClose消除播种可能触发的弹窗
+    // 脱手后、回中前：静默检测驿站绿点（内部含300ms延迟）；随后点良田SafeClose消除播种可能触发的弹窗
     if (silentCheckStationInFertile()) stationGoodsPending = true;
     else sleep(FERTILE.STEP_GAP_MS);
     clickFertileSafeClose();
