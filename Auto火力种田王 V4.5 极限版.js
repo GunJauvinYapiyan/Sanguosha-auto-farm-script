@@ -1718,7 +1718,7 @@ function runFertileFlow(reason) {
     if (silentCheckStationInFertile()) stationGoodsPending = true;
     else sleep(FERTILE.STEP_GAP_MS);
     clickFertileSafeClose();
-    sleep(FERTILE.STEP_GAP_MS);
+    pausableSleep(1000);
     if (cornDue()) {
         runCornFlow();
         if (stationGoodsPending) collectStationGoods();
