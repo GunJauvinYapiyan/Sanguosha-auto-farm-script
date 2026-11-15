@@ -2130,8 +2130,8 @@ function checkAndHandleAutoDebuffAfterPlant(cropKey) {
 function handlePostLoopPopups(stageLabel, cropKey) {
     var ck = cropKey || currentCrop;
     if (ck === 'wheat' || ck === 'rice') {
-        log('[弹窗消除] ' + stageLabel + ' 结束，连点右下角 1 秒');
-        var endAt = Date.now() + 1000;
+        log('[弹窗消除] ' + stageLabel + ' 结束，连点右下角 2.5 秒');
+        var endAt = Date.now() + 2500;
         while (Date.now() < endAt) {
             clickSafeClose();
             pausableSleep(200);
