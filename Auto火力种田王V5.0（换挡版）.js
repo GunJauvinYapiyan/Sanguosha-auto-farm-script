@@ -2,7 +2,9 @@
 // 自动挡（良田+水稻-大豆-2甘蔗轮值，2甘蔗Debuff转玉米） + 手动挡（六挡作物 / 2玉米（上）-1南瓜（下） / 纯良田）
 // 手动挡作物长按1秒可转该作物的一阶段debuff阶段，关闭上方田地后则不提供“玉米-南瓜”选项。
 // 滑动变速旨在适应想用虚拟机挂机的场景（因为在作物经验上限大幅提高的场景，很难做到全天候手植）。目前虚拟机可以完美适应畜牧业和良田常驻，种地的话速度调到30%倒也还行，就是避免不了很多漏植。晚间当然最好还是用真机挂机，其余时间可以用虚拟机挂机，虚拟机的使用方法自行问AI看看，稍微有点繁琐。
-// 提示：悬浮窗请置于左上人物名片处，避开最左上角驿站水域检测。运行脚本第一轮水稻时，最好手动做两次偏移，提前压测一下断线回中机制是否能正常运行，屏幕是否会出现拉伸导致UI向两侧挤开（这可能会导致屯田图标漂移，以及safeclose点位出现在建造图标上）。在确保没问题后，尽量不要再暂停切屏重启游戏，不然屏幕显示可能会不稳定。
+// 提示：驿站绿点检测有两个时机：每次收割后检测一次，以及每两分钟良田检测一次。请把良田视角上的驿站绿点位置替换成泥土地，保证驿站检测正确。
+// 请确认使用自动挡脚本时布告栏处于正确位置，并有至少有一个任务待完成，以实现断线回中功能。
+// 悬浮窗请置于左上人物名片处，避开最左上角驿站水域检测。运行脚本第一轮水稻时，最好手动做两次偏移，提前压测一下断线回中机制是否能正常运行，屏幕是否会出现拉伸导致UI向两侧挤开（这可能会导致屯田图标漂移，以及safeclose点位出现在建造图标上）。在确保没问题后，尽量不要再暂停切屏重启游戏，不然屏幕显示可能会不稳定。
 
 auto.waitFor();
 floaty.closeAll();
@@ -1037,8 +1039,6 @@ function cornBuildGesturePoints(iconPt) {
 function returnFromUpperFieldToCenter() {
     click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
     pausableSleep(UPPER_FIELD.BACK_WAIT_MS);
-    clickSafeClose();
-    pausableSleep(500);
     var imgUpperBack = safeCaptureScreen();
     if (imgUpperBack) {
         var isCentered = DriftGuard.matchReference(imgUpperBack);
@@ -1047,10 +1047,10 @@ function returnFromUpperFieldToCenter() {
             log('[上方田地] 首次点击回中后检测到仍未回中，再点一次回中坐标');
             click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
             pausableSleep(UPPER_FIELD.BACK_WAIT_MS);
-            clickSafeClose();
-            pausableSleep(500);
         }
     }
+    clickSafeClose();
+    pausableSleep(500);
 }
 
 function upperFieldSweep(kind, cropKey) {
@@ -1150,6 +1150,84 @@ function checkBubbleClickWarehouseFull(sourceLabel) {
     }
 }
 
+function isRiceRoundNow() {
+    return (mainPlantedCrop === 'rice' || currentCrop === 'rice');
+}
+
+// 气泡点击后若检测到画面偏移：先点SafeClose，再执行三步断线重连回中直到对上中心画面，不碰中心地块菜单
+function recenterCenterOnlyAfterBubbleDrift(reasonLabel) {
+    log('[气泡防偏] ' + reasonLabel + '：检测到点气泡后画面偏移，先点SafeClose再三步回中');
+    clickSafeClose();
+    sleepWithHeartbeat(500);
+    var attempt = 0;
+    while (true) {
+        attempt++;
+        renewLock();
+        if (attempt > 1) {
+            var imgDisc = safeCaptureScreen();
+            if (imgDisc) {
+                if (isDisconnectDialogShowing(imgDisc)) {
+                    imgDisc.recycle();
+                    click(CONFIG.disconnectDialogReconnectBtn[0], CONFIG.disconnectDialogReconnectBtn[1]);
+                    sleepWithHeartbeat(10000);
+                } else {
+                    imgDisc.recycle();
+                }
+            }
+            randomDragScreen(300);
+            sleepWithHeartbeat(600);
+            clickSafeClose();
+            sleepWithHeartbeat(800);
+        }
+
+        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+        sleepWithHeartbeat(8000);
+
+        click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+        sleepWithHeartbeat(8000);
+
+        while (handleStationScreenIfPresent()) {
+            click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+            sleepWithHeartbeat(8000);
+            click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+            sleepWithHeartbeat(8000);
+        }
+
+        click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
+        sleepWithHeartbeat(4500);
+        clickSafeClose();
+        sleepWithHeartbeat(500);
+
+        var imgCheck = safeCaptureScreen();
+        if (imgCheck) {
+            var matched = DriftGuard.matchReference(imgCheck);
+            imgCheck.recycle();
+            if (matched) {
+                log('[气泡防偏] 第' + attempt + '次三步回中成功，继续执行喂养补料');
+                DriftGuard.reset();
+                break;
+            }
+        }
+    }
+}
+
+function checkCenterAfterBubbleClicks(sourceLabel) {
+    var img = safeCaptureScreen();
+    if (!img) return;
+    if (DriftGuard.isWarehouseFull(img)) {
+        img.recycle();
+        bubbleFlowActive = false;
+        log('[' + sourceLabel + '] 点气泡后检测到爆仓弹窗！');
+        handleWarehouseFullUnified(sourceLabel + '_bubble', false);
+        return;
+    }
+    var centered = DriftGuard.matchReference(img);
+    img.recycle();
+    if (!centered) {
+        recenterCenterOnlyAfterBubbleDrift(sourceLabel + '点气泡偏移');
+    }
+}
+
 function checkAndRunFarmTasks() {
     if (!isChickenEnabled() || bubbleFlowActive) return 'none';
     var img = safeCaptureScreen();
@@ -1159,47 +1237,48 @@ function checkAndRunFarmTasks() {
         img.recycle();
         return 'none';
     }
-    var has_FT = isBubblePresent(img, CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]);
-    var has_FB = isBubblePresent(img, CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]);
-    var has_EL = isBubblePresent(img, CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]);
     var has_ER = isBubblePresent(img, CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]);
     img.recycle();
-    if (has_FT || has_FB || has_EL || has_ER) {
-        log("鸡舍气泡: FT=" + has_FT + " FB=" + has_FB + " EL=" + has_EL + " ER=" + has_ER);
+    if (has_ER) {
+        log("鸡舍气泡: ER=" + has_ER);
         DriftGuard.onBubblesFound();
+        chickenRightNoBubbleSince = 0;
+    } else if (chickenRightNoBubbleSince === 0) {
+        chickenRightNoBubbleSince = Date.now();
     }
-    if (has_EL) chickenLeftNoBubbleSince = 0;
-    else if (chickenLeftNoBubbleSince === 0) chickenLeftNoBubbleSince = Date.now();
-    if (has_ER) chickenRightNoBubbleSince = 0;
-    else if (chickenRightNoBubbleSince === 0) chickenRightNoBubbleSince = Date.now();
 
-    var fullChicken = has_FT && has_FB && has_EL && has_ER;
-    var sideBothChicken = has_EL && has_ER;
-    var leftNoBubbleDur = chickenLeftNoBubbleSince > 0 ? (Date.now() - chickenLeftNoBubbleSince) : 0;
+    var isAutoMode = ((nextDriveMode || currentDriveMode) === 'auto');
     var rightNoBubbleDur = chickenRightNoBubbleSince > 0 ? (Date.now() - chickenRightNoBubbleSince) : 0;
-    var singleSideTimeout = (leftNoBubbleDur >= CHICKEN_TIMEOUT_MS || rightNoBubbleDur >= CHICKEN_TIMEOUT_MS);
+    var timeoutDue = isAutoMode && (rightNoBubbleDur >= CHICKEN_TIMEOUT_MS) && !isRiceRoundNow();
 
     var mode = 'none';
-    if (fullChicken || sideBothChicken) {
-        mode = fullChicken ? 'full' : 'side_both';
-        toastLog("鸡舍气泡成熟（左右两边气泡出现），开始走流程");
-    } else if (singleSideTimeout) {
+    if (has_ER) {
+        mode = 'er_ready';
+        toastLog("鸡舍气泡成熟，开始走流程");
+    } else if (timeoutDue) {
         mode = 'timeout_rescue';
-        toastLog("【鸡舍超时保底】单边气泡缺失超25分钟，点已检测到的气泡后执行补料补产！");
+        log("[鸡舍超时保底] 自动挡ER超25分钟未亮且非水稻轮，执行收料补产");
     }
     if (mode === 'none') return 'none';
-    return runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER);
+    return runChickenFlow(mode);
 }
 
-function runChickenFlow(mode, has_FT, has_FB, has_EL, has_ER) {
+function runChickenFlow(mode) {
     beginAction();
     bubbleFlowActive = true;
-    if (has_FB) { click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400); }
-    if (has_FT) { click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400); }
-    if (has_EL) { click(CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]); pausableSleep(400); }
-    if (has_ER) { click(CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]); pausableSleep(400); }
-    pausableSleep(500);
-    checkBubbleClickWarehouseFull('鸡舍');
+    if (mode === 'timeout_rescue') {
+        // 超时保底：只点上方两个铡刀坊气泡收料，随后直接去鸡舍喂饲料
+        click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400);
+        click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400);
+    } else {
+        // ER=true：依次盲点 ER -> EL -> FT -> FB
+        click(CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]); pausableSleep(400);
+        click(CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]); pausableSleep(400);
+        click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400);
+        click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400);
+    }
+    pausableSleep(1500);
+    checkCenterAfterBubbleClicks('鸡舍');
 
     var factX = CONFIG.factoryFeedIcon[0], factY = CONFIG.factoryFeedIcon[1];
     click(CONFIG.build_FB[0], CONFIG.build_FB[1]); pausableSleep(1000);
@@ -1253,45 +1332,46 @@ function checkAndRunRanchTasks() {
         return 'none';
     }
     var has_R1 = isBubblePresent(img, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
-    var has_R2 = isBubblePresent(img, CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]);
-    var has_CHOP = isBubblePresent(img, CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]);
     img.recycle();
-    if (has_R1 || has_R2 || has_CHOP) {
-        log("马厩气泡: R1=" + has_R1 + " R2=" + has_R2 + " CHOP=" + has_CHOP);
+    if (has_R1) {
+        log("马厩气泡: R1=" + has_R1);
         DriftGuard.onBubblesFound();
+        ranchLeftNoBubbleSince = 0;
+    } else if (ranchLeftNoBubbleSince === 0) {
+        ranchLeftNoBubbleSince = Date.now();
     }
-    if (has_R1) ranchLeftNoBubbleSince = 0;
-    else if (ranchLeftNoBubbleSince === 0) ranchLeftNoBubbleSince = Date.now();
-    if (has_R2) ranchRightNoBubbleSince = 0;
-    else if (ranchRightNoBubbleSince === 0) ranchRightNoBubbleSince = Date.now();
 
-    var fullRanch = has_R1 && has_R2;
+    var isAutoMode = ((nextDriveMode || currentDriveMode) === 'auto');
     var leftNoBubbleDur = ranchLeftNoBubbleSince > 0 ? (Date.now() - ranchLeftNoBubbleSince) : 0;
-    var rightNoBubbleDur = ranchRightNoBubbleSince > 0 ? (Date.now() - ranchRightNoBubbleSince) : 0;
-    var singleSideTimeout = (leftNoBubbleDur >= RANCH_TIMEOUT_MS || rightNoBubbleDur >= RANCH_TIMEOUT_MS);
+    var timeoutDue = isAutoMode && (leftNoBubbleDur >= RANCH_TIMEOUT_MS) && !isRiceRoundNow();
 
     var mode = 'none';
-    var clickChop = true;
-    if (fullRanch) {
-        mode = 'full';
-        clickChop = true;
-        toastLog("马厩左右两边气泡齐了，开始走流程");
-    } else if (singleSideTimeout) {
+    if (has_R1) {
+        mode = 'r1_ready';
+        log("[马厩气泡] R1=true，等待10秒待R2弹出后走马厩流程");
+    } else if (timeoutDue) {
         mode = 'timeout_rescue';
-        clickChop = has_CHOP;
-        toastLog("【马厩超时保底】单边气泡缺失超65分钟，点已检测到的气泡后执行补料补产！");
+        log("[马厩超时保底] 自动挡R1超65分钟未亮且非水稻轮，执行收料补产");
     }
     if (mode === 'none') return 'none';
-    return runRanchFlow(mode, has_R1, has_R2, clickChop);
+    return runRanchFlow(mode);
 }
 
-function runRanchFlow(mode, has_R1, has_R2, clickChop) {
+function runRanchFlow(mode) {
     beginAction();
     bubbleFlowActive = true;
-    if (clickChop) { click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500); }
-    if (has_R1) { click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400); }
-    if (has_R2) { click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(800); }
-    checkBubbleClickWarehouseFull('马厩');
+    if (mode === 'timeout_rescue') {
+        // 超时保底：只强制点下方铡刀坊收料，随后直接去马厩喂饲料
+        click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500);
+    } else {
+        // R1=true：先等10秒确保稍晚弹出的R2也已亮起，再依次盲点 R1 -> CHOP -> R2
+        pausableSleep(10000);
+        toastLog("马厩气泡成熟，开始走流程");
+        click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400);
+        click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500);
+        click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(800);
+    }
+    checkCenterAfterBubbleClicks('马厩');
     pausableSleep(500);
     click(CONFIG.build_R1[0], CONFIG.build_R1[1]); pausableSleep(1000);
     click(CONFIG.enter_R1[0], CONFIG.enter_R1[1]); pausableSleep(1500);
@@ -2400,11 +2480,67 @@ function promptPlantOrHarvestOnZeroTimer() {
     return actionClicked; // "positive"=种植, "negative"=收割, "neutral"/其他=取消
 }
 
+var justResetAllTimers = false;
+function resetAllTimersToZero() {
+    // 1. 主田计时归零（保留 hasEverPlantedMainField = true，确保点中心地后按播放依然询问【种植 / 收割 / 取消】）
+    hasEverPlantedMainField = true;
+    mainPlantedCrop = null;
+    lastPlantTime = 0;
+    mainFieldReadyAt = 0;
+    plantDone = false;
+
+    // 2. 上方田地计时归零
+    upperPlantedCrop = null;
+    upperLastPlantTime = 0;
+    upperFieldReadyAt = 0;
+    cornPumpkinSecondCornDone = false;
+
+    // 3. 良田计时归零
+    fertileLastPlantTime = 0;
+    fertileFieldReadyAt = 0;
+
+    // 4. 鸡舍与马厩计时及计数归零
+    chickenLeftNoBubbleSince = 0;
+    chickenRightNoBubbleSince = 0;
+    ranchLeftNoBubbleSince = 0;
+    ranchRightNoBubbleSince = 0;
+    chickenRunCount = 0;
+    ranchRunCount = 0;
+    needSellWheat = false;
+    needSellEggs = false;
+    needSellMilk = false;
+    lastNoChickenWheatSellTime = Date.now();
+    pauseRanchAfterRiceOverflow = false;
+    bubbleFlowActive = false;
+    bubbleDetectSuspended = false;
+    stationGoodsPending = false;
+
+    // 5. 自动挡轮次与流程标记重置
+    autoPhase = 'normal';
+    autoStepIdx = 0;
+    autoDebuffTriggered = false;
+    autoCurrentRoundNoSell = false;
+    autoCornRoundCount = 0;
+    autoPendingSellCrop = null;
+    autoPendingSellTimes = 0;
+    skipToHarvestOnce = false;
+    skipWaitOnce = false;
+    pendingMenuAlreadyOpen = false;
+    centerTouched = false;
+
+    applyPendingModeAndGearSwitch();
+    syncUI();
+}
+
 function handlePauseAndResume() {
     setActionInProgress(false);
     while (CTRL.paused) {
         sleep(200);
         renewLock();
+    }
+    if (justResetAllTimers) {
+        resetAllTimersToZero();
+        justResetAllTimers = false;
     }
     pauseTriggered = false;
     setActionInProgress(true);
@@ -2890,17 +3026,51 @@ function createControlPanel() {
         }
     });
 
-    ctrlWin.ppBtn.click(function () {
-        if (CTRL.paused) {
-            forceCloseSettingsPanel();
-            CTRL.paused = false;
-            syncUI();
-        } else {
-            CTRL.paused = true;
-            pauseTriggered = true;
-            syncUI();
-            toastLog("已暂停");
+    var ppDownTime = 0;
+    var ppPressing = false;
+    var ppLongPressTriggered = false;
+    ctrlWin.ppBtn.setOnTouchListener(function (view, event) {
+        var action = event.getAction();
+        if (action === event.ACTION_DOWN) {
+            ppDownTime = Date.now();
+            ppPressing = true;
+            ppLongPressTriggered = false;
+            var thisDownTime = ppDownTime;
+            threads.start(function () {
+                sleep(1000);
+                if (ppPressing && ppDownTime === thisDownTime && !ppLongPressTriggered) {
+                    ppLongPressTriggered = true;
+                    forceCloseSettingsPanel();
+                    CTRL.paused = true;
+                    pauseTriggered = true;
+                    syncUI();
+                    var confirmed = dialogs.confirm("Reset", "是否重置所有计时？");
+                    if (confirmed) {
+                        resetAllTimersToZero();
+                        justResetAllTimers = true;
+                        toastLog("已重置所有计时");
+                    }
+                }
+            });
+            return true;
         }
+        if (action === event.ACTION_UP || action === event.ACTION_CANCEL) {
+            ppPressing = false;
+            if (!ppLongPressTriggered && action === event.ACTION_UP) {
+                if (CTRL.paused) {
+                    forceCloseSettingsPanel();
+                    CTRL.paused = false;
+                    syncUI();
+                } else {
+                    CTRL.paused = true;
+                    pauseTriggered = true;
+                    syncUI();
+                    toastLog("已暂停");
+                }
+            }
+            return true;
+        }
+        return true;
     });
 
     ctrlWin.btnModeAuto.click(function () { selectDriveMode('auto'); });
