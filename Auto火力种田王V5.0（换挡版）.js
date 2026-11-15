@@ -749,8 +749,7 @@ var DriftGuard = {
         if (!isDriftCheckOn()) {
             pauseScriptOnOffset("检测到画面偏移，已自动暂停");
         }
-        click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
-        sleep(UPPER_FIELD.BACK_WAIT_MS);
+        // 先点SafeClose消弹窗再复核一次（已在中心，不再点上方田地返回键）
         clickSafeClose();
         sleep(500);
         var img2 = safeCaptureScreen();
@@ -804,8 +803,7 @@ var DriftGuard = {
         if (!isDriftCheckOn()) {
             pauseScriptOnOffset("检测到画面偏移，已自动暂停");
         }
-        click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
-        sleep(UPPER_FIELD.BACK_WAIT_MS);
+        // 先点SafeClose消弹窗再复核一次（已在中心，不再点上方田地返回键）
         clickSafeClose();
         sleep(500);
         var img3 = safeCaptureScreen();
@@ -852,8 +850,7 @@ var DriftGuard = {
             return 'warehouseFull';
         }
         img2.recycle();
-        click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
-        sleep(UPPER_FIELD.BACK_WAIT_MS);
+        // 先点SafeClose消弹窗再复核一次（已在中心，不再点上方田地返回键）
         clickSafeClose();
         sleep(500);
         var img3 = safeCaptureScreen();
@@ -1405,19 +1402,13 @@ function collectStationGoods() {
 }
 function handleStationScreenIfPresent() {
     var img = safeCaptureScreen();
-    if (!img) return;
+    if (!img) return false;
     var onStation = isOnStationScreen(img);
     img.recycle();
-    if (!onStation) return;
-    log('[驿站水域检测] 发现误入驿站界面，先执行驿站收货再回中');
-    click(CONFIG.stationHarvestBtn[0], CONFIG.stationHarvestBtn[1]);
-    sleepWithHeartbeat(3000);
-    if (isStationLoadOn()) {
-        click(CONFIG.stationLoadBtn[0], CONFIG.stationLoadBtn[1]);
-        sleepWithHeartbeat(3000);
-    }
-    clickSafeClose();
-    sleepWithHeartbeat(500);
+    if (!onStation) return false;
+    log('[驿站水域检测] 检测到左上角驿站水域，直接执行完整驿站收货流程');
+    collectStationGoods();
+    return true;
 }
 
 // ================= 盲点断线回中与良田独立偏移回中 =================
@@ -1492,6 +1483,15 @@ function blindExitReenterAndRecenter(reasonLabel) {
 
         click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
         sleepWithHeartbeat(8000);
+
+        // 点过屯田坐标后、点下方回中坐标之前：检测左上角水域RGB，若落入驿站视角则先走完整收货流程，再点右上角退出重进屯田
+        while (handleStationScreenIfPresent()) {
+            log('[驿站水域检测] 驿站收货完成，重新点右上角退出再进屯田以恢复正常布告栏定位');
+            click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+            sleepWithHeartbeat(8000);
+            click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+            sleepWithHeartbeat(8000);
+        }
 
         click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
         sleepWithHeartbeat(4500);
@@ -1589,6 +1589,13 @@ function recoverPureFertileFromDrift() {
         // 2. 盲点主页屯田入口
         click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
         sleepWithHeartbeat(8000);
+        // 2.5 点过屯田坐标后、点回中坐标之前：检测左上角水域RGB，若落入驿站视角则先收货再退出重进屯田
+        while (handleStationScreenIfPresent()) {
+            click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+            sleepWithHeartbeat(8000);
+            click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+            sleepWithHeartbeat(8000);
+        }
         // 3. 点告示牌回中
         click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
         sleepWithHeartbeat(4500);
