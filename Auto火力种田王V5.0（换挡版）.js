@@ -126,10 +126,10 @@ var CONFIG = {
     eggSellBtn: null,
     milkSlotInWarehouse: null,
     milkSellBtn: null,
-    bubble_FT: [1280, 110],
-    bubble_FB: [1320, 430],
-    bubble_EL: [660, 220],
-    bubble_ER: [1750, 220],
+    bubble_CT: [1280, 110],           // 鸡舍上铡刀坊气泡 (chicken top)
+    bubble_CB: [1320, 430],           // 鸡舍下铡刀坊气泡 (chicken bottom)
+    bubble_CL: [660, 220],            // 左鸡舍气泡 (chicken left)
+    bubble_CR: [1750, 220],           // 右鸡舍气泡 (chicken right)
     build_FT: [1320, 400], enter_FT: [1240, 285],
     build_FB: [1320, 700], enter_FB: [1240, 360],
     build_CL: [590, 700],  enter_CL: [590, 390],
@@ -138,9 +138,9 @@ var CONFIG = {
     coopFeedIcon: [1220, 940],
     coopChicken1: [580, 540],
     coopChicken6: [1880, 540],
-    bubble_R1: [195, 853],
-    bubble_R2: [1060, 853],
-    bubble_CHOP: [665, 1060],
+    bubble_HL: [195, 853],            // 左马厩气泡 (horse left)
+    bubble_HR: [1060, 853],           // 右马厩气泡 (horse right)
+    bubble_HC: [665, 1060],           // 马厩下铡刀坊气泡 (horse chop)
     build_R1: [80, 1025],  enter_R1: [455, 390],
     build_R2: [1325, 755], enter_R2: [1325, 390],
     build_CHOP: [975, 865], enter_CHOP: [880, 475],
@@ -560,9 +560,10 @@ function clickSafeClose() {
     centerTouched = false;
 }
 function ensureCenterClean() {
+    if (CTRL.paused || pauseTriggered) throw new PauseSignal();
     if (centerTouched) {
         clickSafeClose();
-        sleep(400);
+        pausableSleep(400);
     }
 }
 function clickCenterTile(x, y) {
@@ -576,6 +577,8 @@ var ctrlWin = null;
 var referencePatch = null;
 var REF_REGION = [1606, 354, 106, 78];
 var DRIFT_SEARCH_MARGIN = 40;
+var RECOVER_MAX_ATTEMPTS = 6;      // 回中连续失败上限（遇到断线弹窗不计入），超过则暂停，避免无限盲点
+var BUBBLE_MAX_OFFSET_PX = 15;     // 点建筑菜单前允许的基准图偏移像素，超过则不点（防误点旋转/移动）
 
 var fertileReferencePatch = null;
 var FERTILE_REF_REGION = [
@@ -697,6 +700,66 @@ function regionHasColorNear(img, cx, cy, radius, targetColor, tolerance, minPixe
 }
 
 // ================= 偏移检测 (DriftGuard) =================
+// 基准图当前相对原位的偏移（像素）。找不到或坐标系异常返回 null
+function getReferenceOffset(img) {
+    if (!referencePatch || !img) return null;
+    try {
+        var searchRegion = [
+            Math.max(0, REF_REGION[0] - DRIFT_SEARCH_MARGIN),
+            Math.max(0, REF_REGION[1] - DRIFT_SEARCH_MARGIN),
+            REF_REGION[2] + DRIFT_SEARCH_MARGIN * 2,
+            REF_REGION[3] + DRIFT_SEARCH_MARGIN * 2
+        ];
+        var pt = images.findImage(img, referencePatch, { region: searchRegion, threshold: 0.8 });
+        if (!pt) return null;
+        var dx = pt.x - REF_REGION[0], dy = pt.y - REF_REGION[1];
+        if (Math.abs(dx) > DRIFT_SEARCH_MARGIN + 10 || Math.abs(dy) > DRIFT_SEARCH_MARGIN + 10) return null;
+        return [dx, dy];
+    } catch (e) {
+        return null;
+    }
+}
+function isOffsetTooBig(off) {
+    return !!off && Math.max(Math.abs(off[0]), Math.abs(off[1])) > BUBBLE_MAX_OFFSET_PX;
+}
+// 回中没对上时留证据：存整屏图，并写明是"整屏找不到基准图"（基准区的建筑被转/移，或被弹窗遮住）还是"只是位置偏了"
+function diagnoseReferenceMiss(tag, img) {
+    try {
+        DriftGuard.saveDebugImg(img, tag);
+        if (!referencePatch) return;
+        var pt = images.findImage(img, referencePatch, { threshold: 0.8 });
+        if (pt) {
+            log('[回中诊断] ' + tag + '：整屏能找到基准图，偏移 dx=' + (pt.x - REF_REGION[0]) + ' dy=' + (pt.y - REF_REGION[1]));
+        } else {
+            log('[回中诊断] ' + tag + '：整屏找不到基准图（基准区域的建筑被转动/移动，或被弹窗遮住），截图已存 ' + DEBUG_DIR);
+        }
+    } catch (e) {}
+}
+// 裁剪当前回中尝试的特征块（用于第n+1张与第n张比对，判断画面是否卡死/原地死循环；比对后立即recycle防内存泄漏）
+function clipAttemptPatch(img) {
+    if (!img) return null;
+    try {
+        return images.clip(img, REF_REGION[0], REF_REGION[1], REF_REGION[2], REF_REGION[3]);
+    } catch (e) {
+        return null;
+    }
+}
+function isSameAsPrevAttempt(img, prevPatch) {
+    if (!img || !prevPatch) return false;
+    try {
+        var searchRegion = [
+            Math.max(0, REF_REGION[0] - DRIFT_SEARCH_MARGIN),
+            Math.max(0, REF_REGION[1] - DRIFT_SEARCH_MARGIN),
+            REF_REGION[2] + DRIFT_SEARCH_MARGIN * 2,
+            REF_REGION[3] + DRIFT_SEARCH_MARGIN * 2
+        ];
+        var pt = images.findImage(img, prevPatch, { region: searchRegion, threshold: 0.85 });
+        return pt !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
 var DriftGuard = {
     suspected: false,
     reset: function () { this.suspected = false; },
@@ -1037,16 +1100,43 @@ function cornBuildGesturePoints(iconPt) {
 }
 
 function returnFromUpperFieldToCenter() {
+    // 点返回前先对返回键周围取样：点完后对比，判断第一下到底有没有离开上方田地。
+    // 已回到主田视角时 (1405,1054) 落在底部工具栏上，再点会误触，所以只有"没离开"才补点
+    var backRegion = [UPPER_FIELD.BACK_BTN[0] - 60, UPPER_FIELD.BACK_BTN[1] - 54, 120, 66];
+    var preImg = safeCaptureScreen();
+    var preSamples = preImg ? sampleRegionColors(preImg, backRegion, 20, 10) : null;
+    if (preImg) preImg.recycle();
+
     click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
     pausableSleep(UPPER_FIELD.BACK_WAIT_MS);
     var imgUpperBack = safeCaptureScreen();
     if (imgUpperBack) {
         var isCentered = DriftGuard.matchReference(imgUpperBack);
+        var stillUpper = true;
+        if (preSamples) {
+            var nowSamples = sampleRegionColors(imgUpperBack, backRegion, 20, 10);
+            var changed = 0;
+            var n = Math.min(nowSamples.length, preSamples.length);
+            for (var i = 0; i < n; i++) {
+                var c1 = preSamples[i], c2 = nowSamples[i];
+                var d = Math.max(
+                    Math.abs(colors.red(c1) - colors.red(c2)),
+                    Math.abs(colors.green(c1) - colors.green(c2)),
+                    Math.abs(colors.blue(c1) - colors.blue(c2))
+                );
+                if (d > 40) changed++;
+            }
+            stillUpper = changed < n * 0.3;
+        }
         imgUpperBack.recycle();
         if (!isCentered) {
-            log('[上方田地] 首次点击回中后检测到仍未回中，再点一次回中坐标');
-            click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
-            pausableSleep(UPPER_FIELD.BACK_WAIT_MS);
+            if (stillUpper) {
+                log('[上方田地] 首次点击回中后检测到仍未回中，再点一次回中坐标');
+                click(UPPER_FIELD.BACK_BTN[0], UPPER_FIELD.BACK_BTN[1]);
+                pausableSleep(UPPER_FIELD.BACK_WAIT_MS);
+            } else {
+                log('[上方田地] 已离开上方田地但画面未对上基准图，不再点返回键，交给后续偏移检测处理');
+            }
         }
     }
     clickSafeClose();
@@ -1160,72 +1250,131 @@ function recenterCenterOnlyAfterBubbleDrift(reasonLabel) {
     clickSafeClose();
     sleepWithHeartbeat(500);
     var attempt = 0;
-    while (true) {
-        attempt++;
-        renewLock();
-        if (attempt > 1) {
-            var imgDisc = safeCaptureScreen();
-            if (imgDisc) {
-                if (isDisconnectDialogShowing(imgDisc)) {
-                    imgDisc.recycle();
-                    click(CONFIG.disconnectDialogReconnectBtn[0], CONFIG.disconnectDialogReconnectBtn[1]);
-                    sleepWithHeartbeat(10000);
-                } else {
-                    imgDisc.recycle();
+    var prevAttemptPatch = null;
+    var needRandomDrag = false;
+    try {
+        while (true) {
+            attempt++;
+            renewLock();
+            if (attempt > 1) {
+                var imgDisc = safeCaptureScreen();
+                if (imgDisc) {
+                    if (isDisconnectDialogShowing(imgDisc)) {
+                        imgDisc.recycle();
+                        click(CONFIG.disconnectDialogReconnectBtn[0], CONFIG.disconnectDialogReconnectBtn[1]);
+                        sleepWithHeartbeat(10000);
+                    } else {
+                        imgDisc.recycle();
+                    }
                 }
+                if (needRandomDrag) {
+                    log('[气泡防偏] 上一轮画面与前一张重合（疑似卡死或死循环），触发一次 randomDragScreen(300)');
+                    randomDragScreen(300);
+                    sleepWithHeartbeat(600);
+                    needRandomDrag = false;
+                }
+                clickSafeClose();
+                sleepWithHeartbeat(800);
             }
-            randomDragScreen(300);
-            sleepWithHeartbeat(600);
-            clickSafeClose();
-            sleepWithHeartbeat(800);
-        }
 
-        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
-        sleepWithHeartbeat(8000);
-
-        click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
-        sleepWithHeartbeat(8000);
-
-        while (handleStationScreenIfPresent()) {
             click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
             sleepWithHeartbeat(8000);
+
             click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
             sleepWithHeartbeat(8000);
-        }
 
-        click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
-        sleepWithHeartbeat(4500);
-        clickSafeClose();
-        sleepWithHeartbeat(500);
-
-        var imgCheck = safeCaptureScreen();
-        if (imgCheck) {
-            var matched = DriftGuard.matchReference(imgCheck);
-            imgCheck.recycle();
-            if (matched) {
-                log('[气泡防偏] 第' + attempt + '次三步回中成功，继续执行喂养补料');
-                DriftGuard.reset();
-                break;
+            while (handleStationScreenIfPresent()) {
+                click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+                sleepWithHeartbeat(8000);
+                click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+                sleepWithHeartbeat(8000);
             }
+
+            click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
+            sleepWithHeartbeat(4500);
+            clickSafeClose();
+            sleepWithHeartbeat(500);
+
+            var imgCheck = safeCaptureScreen();
+            if (imgCheck) {
+                var matched = DriftGuard.matchReference(imgCheck);
+                if (matched) {
+                    var offOk = getReferenceOffset(imgCheck);
+                    imgCheck.recycle();
+                    log('[气泡防偏] 第' + attempt + '次三步回中成功' + (offOk ? '（偏移 ' + offOk[0] + ',' + offOk[1] + '）' : ''));
+                    DriftGuard.reset();
+                    break;
+                }
+                if (prevAttemptPatch) {
+                    if (isSameAsPrevAttempt(imgCheck, prevAttemptPatch)) {
+                        needRandomDrag = true;
+                        log('[气泡防偏] 第' + attempt + '次未对上基准图，且与上一张重合，下一轮触发随机拖屏');
+                    } else {
+                        needRandomDrag = false;
+                        log('[气泡防偏] 第' + attempt + '次未对上基准图，但与上一张不同（画面仍在动），继续回中不拖屏');
+                    }
+                    prevAttemptPatch.recycle();
+                    prevAttemptPatch = null;
+                }
+                prevAttemptPatch = clipAttemptPatch(imgCheck);
+                imgCheck.recycle();
+            }
+        }
+    } finally {
+        if (prevAttemptPatch) {
+            prevAttemptPatch.recycle();
+            prevAttemptPatch = null;
         }
     }
 }
 
+// 返回 true=画面位置够准，可以接着点建筑菜单；false=位置仍有偏差，放弃本次喂养（防止误点旋转/移动建筑）
 function checkCenterAfterBubbleClicks(sourceLabel) {
     var img = safeCaptureScreen();
-    if (!img) return;
+    if (!img) return true;
     if (DriftGuard.isWarehouseFull(img)) {
         img.recycle();
         bubbleFlowActive = false;
         log('[' + sourceLabel + '] 点气泡后检测到爆仓弹窗！');
         handleWarehouseFullUnified(sourceLabel + '_bubble', false);
-        return;
+        return true;
     }
     var centered = DriftGuard.matchReference(img);
+    var off = centered ? getReferenceOffset(img) : null;
     img.recycle();
-    if (!centered) {
-        recenterCenterOnlyAfterBubbleDrift(sourceLabel + '点气泡偏移');
+    if (centered && !isOffsetTooBig(off)) return true;
+
+    // 第一下不对：先点SafeClose（点气泡可能弹出了遮住基准区的窗口），等一会儿复核，别直接断线重连
+    log('[气泡防偏] ' + sourceLabel + '点气泡后未对上基准图' + (off ? '（偏移 ' + off[0] + ',' + off[1] + '）' : '') + '，先点SafeClose复核一次');
+    clickSafeClose();
+    pausableSleep(700);
+    var img2 = safeCaptureScreen();
+    if (img2) {
+        var centered2 = DriftGuard.matchReference(img2);
+        var off2 = centered2 ? getReferenceOffset(img2) : null;
+        if (centered2 && !isOffsetTooBig(off2)) {
+            img2.recycle();
+            log('[气泡防偏] SafeClose后已对上基准图，不需要断线回中');
+            return true;
+        }
+        if (!centered2) diagnoseReferenceMiss('bubble_check_miss', img2);
+        img2.recycle();
     }
+    if (!isDriftCheckOn()) {
+        pauseScriptOnOffset(sourceLabel + "点气泡后画面偏移，已自动暂停");
+    }
+    recenterCenterOnlyAfterBubbleDrift(sourceLabel + '点气泡偏移');
+    // 回中"对上"只代表偏差在40px内；接着要点的建筑弹窗按钮很密，偏太多就不点了
+    var img3 = safeCaptureScreen();
+    if (img3) {
+        var off3 = getReferenceOffset(img3);
+        img3.recycle();
+        if (isOffsetTooBig(off3)) {
+            log('[气泡防偏] ' + sourceLabel + '回中后仍偏移 ' + off3[0] + ',' + off3[1] + ' px（上限' + BUBBLE_MAX_OFFSET_PX + '），放弃本次建筑操作');
+            return false;
+        }
+    }
+    return true;
 }
 
 function checkAndRunFarmTasks() {
@@ -1237,14 +1386,39 @@ function checkAndRunFarmTasks() {
         img.recycle();
         return 'none';
     }
-    var has_ER = isBubblePresent(img, CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]);
+    var has_CT = isBubblePresent(img, CONFIG.bubble_CT[0], CONFIG.bubble_CT[1]);
+    var has_CR = isBubblePresent(img, CONFIG.bubble_CR[0], CONFIG.bubble_CR[1]);
     img.recycle();
-    if (has_ER) {
-        log("鸡舍气泡: ER=" + has_ER);
+
+    // 初测 CR=true 时，等5秒再复测一次，排除田间随机小白人浇水动画等瞬间白色干扰，同时让稍慢半拍的左鸡舍气泡对齐
+    if (has_CR) {
+        log("鸡舍气泡初测: CT=" + has_CT + " CR=true，等待5秒二次复核...");
+        pausableSleep(5000);
+        var imgRe = safeCaptureScreen();
+        if (!imgRe) return 'none';
+        if (!DriftGuard.matchReference(imgRe)) {
+            imgRe.recycle();
+            return 'none';
+        }
+        var has_CT_re = isBubblePresent(imgRe, CONFIG.bubble_CT[0], CONFIG.bubble_CT[1]);
+        has_CR = isBubblePresent(imgRe, CONFIG.bubble_CR[0], CONFIG.bubble_CR[1]);
+        has_CT = has_CT && has_CT_re;
+        imgRe.recycle();
+        log("鸡舍气泡5秒复核: CT=" + has_CT + "(复测=" + has_CT_re + ") CR=" + has_CR);
+        if (!has_CR) {
+            log("[鸡舍气泡] 5秒复核CR为false，判定为小人浇水等瞬间动画干扰，忽略本次触发");
+            return 'none';
+        }
         DriftGuard.onBubblesFound();
         chickenRightNoBubbleSince = 0;
-    } else if (chickenRightNoBubbleSince === 0) {
-        chickenRightNoBubbleSince = Date.now();
+    } else {
+        if (has_CT) {
+            log("鸡舍气泡: CT=true CR=false");
+            DriftGuard.onBubblesFound();
+        }
+        if (chickenRightNoBubbleSince === 0) {
+            chickenRightNoBubbleSince = Date.now();
+        }
     }
 
     var isAutoMode = ((nextDriveMode || currentDriveMode) === 'auto');
@@ -1252,12 +1426,12 @@ function checkAndRunFarmTasks() {
     var timeoutDue = isAutoMode && (rightNoBubbleDur >= CHICKEN_TIMEOUT_MS) && !isRiceRoundNow();
 
     var mode = 'none';
-    if (has_ER) {
-        mode = 'er_ready';
+    if (has_CR) {
+        mode = has_CT ? 'cr_and_ct' : 'cr_only';
         toastLog("鸡舍气泡成熟，开始走流程");
     } else if (timeoutDue) {
         mode = 'timeout_rescue';
-        log("[鸡舍超时保底] 自动挡ER超25分钟未亮且非水稻轮，执行收料补产");
+        log("[鸡舍超时保底] 自动挡CR超25分钟未亮且非水稻轮，执行收料补产");
     }
     if (mode === 'none') return 'none';
     return runChickenFlow(mode);
@@ -1268,17 +1442,26 @@ function runChickenFlow(mode) {
     bubbleFlowActive = true;
     if (mode === 'timeout_rescue') {
         // 超时保底：只点上方两个铡刀坊气泡收料，随后直接去鸡舍喂饲料
-        click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400);
-        click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400);
+        click(CONFIG.bubble_CB[0], CONFIG.bubble_CB[1]); pausableSleep(400);
+        click(CONFIG.bubble_CT[0], CONFIG.bubble_CT[1]); pausableSleep(400);
+    } else if (mode === 'cr_only') {
+        // bubble_CR=true 但 bubble_CT=false：只点左右两边鸡舍气泡，上下两个铡刀坊不盲点，随后正常走流程上料
+        click(CONFIG.bubble_CR[0], CONFIG.bubble_CR[1]); pausableSleep(400);
+        click(CONFIG.bubble_CL[0], CONFIG.bubble_CL[1]); pausableSleep(400);
     } else {
-        // ER=true：依次盲点 ER -> EL -> FT -> FB
-        click(CONFIG.bubble_ER[0], CONFIG.bubble_ER[1]); pausableSleep(400);
-        click(CONFIG.bubble_EL[0], CONFIG.bubble_EL[1]); pausableSleep(400);
-        click(CONFIG.bubble_FT[0], CONFIG.bubble_FT[1]); pausableSleep(400);
-        click(CONFIG.bubble_FB[0], CONFIG.bubble_FB[1]); pausableSleep(400);
+        // bubble_CR=true 且 bubble_CT=true：依次点 CR -> CL -> CT -> CB
+        click(CONFIG.bubble_CR[0], CONFIG.bubble_CR[1]); pausableSleep(400);
+        click(CONFIG.bubble_CL[0], CONFIG.bubble_CL[1]); pausableSleep(400);
+        click(CONFIG.bubble_CT[0], CONFIG.bubble_CT[1]); pausableSleep(400);
+        click(CONFIG.bubble_CB[0], CONFIG.bubble_CB[1]); pausableSleep(400);
     }
     pausableSleep(1500);
-    checkCenterAfterBubbleClicks('鸡舍');
+    if (!checkCenterAfterBubbleClicks('鸡舍')) {
+        bubbleFlowActive = false;
+        chickenRightNoBubbleSince = Date.now();
+        toastLog('[鸡舍] 回中后位置仍有偏差，本次不点建筑菜单，放弃喂养');
+        return 'aborted';
+    }
 
     var factX = CONFIG.factoryFeedIcon[0], factY = CONFIG.factoryFeedIcon[1];
     click(CONFIG.build_FB[0], CONFIG.build_FB[1]); pausableSleep(1000);
@@ -1331,10 +1514,26 @@ function checkAndRunRanchTasks() {
         img.recycle();
         return 'none';
     }
-    var has_R1 = isBubblePresent(img, CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]);
+    var has_HL = isBubblePresent(img, CONFIG.bubble_HL[0], CONFIG.bubble_HL[1]);
     img.recycle();
-    if (has_R1) {
-        log("马厩气泡: R1=" + has_R1);
+
+    // 初测 HL=true 时，先等5秒复测一次排除田间随机小白人浇水等瞬间动画干扰；若仍为true再等剩余5秒（合计10秒）待HR亮起并二次确认
+    if (has_HL) {
+        log("马厩气泡初测: HL=true，等待5秒二次复核...");
+        pausableSleep(5000);
+        var imgRe = safeCaptureScreen();
+        if (!imgRe) return 'none';
+        if (!DriftGuard.matchReference(imgRe)) {
+            imgRe.recycle();
+            return 'none';
+        }
+        has_HL = isBubblePresent(imgRe, CONFIG.bubble_HL[0], CONFIG.bubble_HL[1]);
+        imgRe.recycle();
+        log("马厩气泡5秒复核: HL=" + has_HL);
+        if (!has_HL) {
+            log("[马厩气泡] 5秒复核HL为false，判定为小人浇水等瞬间动画干扰，忽略本次触发");
+            return 'none';
+        }
         DriftGuard.onBubblesFound();
         ranchLeftNoBubbleSince = 0;
     } else if (ranchLeftNoBubbleSince === 0) {
@@ -1346,12 +1545,12 @@ function checkAndRunRanchTasks() {
     var timeoutDue = isAutoMode && (leftNoBubbleDur >= RANCH_TIMEOUT_MS) && !isRiceRoundNow();
 
     var mode = 'none';
-    if (has_R1) {
-        mode = 'r1_ready';
-        log("[马厩气泡] R1=true，等待10秒待R2弹出后走马厩流程");
+    if (has_HL) {
+        mode = 'hl_ready';
+        log("[马厩气泡] HL二次复核通过，再等5秒（满10秒）待HR弹出后走马厩流程");
     } else if (timeoutDue) {
         mode = 'timeout_rescue';
-        log("[马厩超时保底] 自动挡R1超65分钟未亮且非水稻轮，执行收料补产");
+        log("[马厩超时保底] 自动挡HL超65分钟未亮且非水稻轮，执行收料补产");
     }
     if (mode === 'none') return 'none';
     return runRanchFlow(mode);
@@ -1362,16 +1561,32 @@ function runRanchFlow(mode) {
     bubbleFlowActive = true;
     if (mode === 'timeout_rescue') {
         // 超时保底：只强制点下方铡刀坊收料，随后直接去马厩喂饲料
-        click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500);
+        click(CONFIG.bubble_HC[0], CONFIG.bubble_HC[1]); pausableSleep(1500);
     } else {
-        // R1=true：先等10秒确保稍晚弹出的R2也已亮起，再依次盲点 R1 -> CHOP -> R2
-        pausableSleep(10000);
+        // HL已在5秒复核通过，再等剩余5秒（总计10秒）确保稍晚弹出的HR亮起，点击前再核对一次中心与HL气泡
+        pausableSleep(5000);
+        var imgPre = safeCaptureScreen();
+        if (imgPre) {
+            var stillCentered = DriftGuard.matchReference(imgPre);
+            var stillHL = stillCentered && isBubblePresent(imgPre, CONFIG.bubble_HL[0], CONFIG.bubble_HL[1]);
+            imgPre.recycle();
+            if (!stillCentered || !stillHL) {
+                log("[马厩气泡] 满10秒点击前复核未通过（centered=" + stillCentered + ", HL=" + stillHL + "），取消本次马厩触发");
+                bubbleFlowActive = false;
+                return 'none';
+            }
+        }
         toastLog("马厩气泡成熟，开始走流程");
-        click(CONFIG.bubble_R1[0], CONFIG.bubble_R1[1]); pausableSleep(400);
-        click(CONFIG.bubble_CHOP[0], CONFIG.bubble_CHOP[1]); pausableSleep(500);
-        click(CONFIG.bubble_R2[0], CONFIG.bubble_R2[1]); pausableSleep(800);
+        click(CONFIG.bubble_HL[0], CONFIG.bubble_HL[1]); pausableSleep(400);
+        click(CONFIG.bubble_HC[0], CONFIG.bubble_HC[1]); pausableSleep(500);
+        click(CONFIG.bubble_HR[0], CONFIG.bubble_HR[1]); pausableSleep(1500);
     }
-    checkCenterAfterBubbleClicks('马厩');
+    if (!checkCenterAfterBubbleClicks('马厩')) {
+        bubbleFlowActive = false;
+        ranchLeftNoBubbleSince = Date.now();
+        toastLog('[马厩] 回中后位置仍有偏差，本次不点建筑菜单，放弃喂养');
+        return 'aborted';
+    }
     pausableSleep(500);
     click(CONFIG.build_R1[0], CONFIG.build_R1[1]); pausableSleep(1000);
     click(CONFIG.enter_R1[0], CONFIG.enter_R1[1]); pausableSleep(1500);
@@ -1538,55 +1753,82 @@ function blindExitReenterAndRecenter(reasonLabel) {
     saveFreezeDebugImg('recover_start');
     handleStationScreenIfPresent();
     var attempt = 0;
-    while (true) {
-        attempt++;
-        renewLock();
-        if (attempt > 1) {
-            var imgDisc = safeCaptureScreen();
-            if (imgDisc) {
-                if (isDisconnectDialogShowing(imgDisc)) {
-                    imgDisc.recycle();
-                    click(CONFIG.disconnectDialogReconnectBtn[0], CONFIG.disconnectDialogReconnectBtn[1]);
-                    sleepWithHeartbeat(10000);
-                } else {
-                    imgDisc.recycle();
+    var prevAttemptPatch = null;
+    var needRandomDrag = false;
+    try {
+        while (true) {
+            attempt++;
+            renewLock();
+            if (attempt > 1) {
+                var imgDisc = safeCaptureScreen();
+                if (imgDisc) {
+                    if (isDisconnectDialogShowing(imgDisc)) {
+                        imgDisc.recycle();
+                        click(CONFIG.disconnectDialogReconnectBtn[0], CONFIG.disconnectDialogReconnectBtn[1]);
+                        sleepWithHeartbeat(10000);
+                    } else {
+                        imgDisc.recycle();
+                    }
                 }
+                if (needRandomDrag) {
+                    log('[盲点回中] 上一轮画面与前一张重合（疑似卡死或死循环），触发一次 randomDragScreen(300)');
+                    randomDragScreen(300);
+                    sleepWithHeartbeat(600);
+                    needRandomDrag = false;
+                }
+                clickSafeClose();
+                sleepWithHeartbeat(800);
             }
-            randomDragScreen(300);
-            sleepWithHeartbeat(600);
-            clickSafeClose();
-            sleepWithHeartbeat(800);
-        }
 
-        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
-        sleepWithHeartbeat(8000);
-
-        click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
-        sleepWithHeartbeat(8000);
-
-        // 点过屯田坐标后、点下方回中坐标之前：检测左上角水域RGB，若落入驿站视角则先走完整收货流程，再点右上角退出重进屯田
-        while (handleStationScreenIfPresent()) {
-            log('[驿站水域检测] 驿站收货完成，重新点右上角退出再进屯田以恢复正常布告栏定位');
             click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
             sleepWithHeartbeat(8000);
+
             click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
             sleepWithHeartbeat(8000);
-        }
 
-        click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
-        sleepWithHeartbeat(4500);
-        clickSafeClose();
-        sleepWithHeartbeat(500);
-
-        var imgCheck = safeCaptureScreen();
-        if (imgCheck) {
-            var matched = DriftGuard.matchReference(imgCheck);
-            imgCheck.recycle();
-            if (matched) {
-                log('[盲点回中] 第' + attempt + '次尝试成功对上中心画面！');
-                DriftGuard.reset();
-                break;
+            // 点过屯田坐标后、点下方回中坐标之前：检测左上角水域RGB，若落入驿站视角则先走完整收货流程，再点右上角退出重进屯田
+            while (handleStationScreenIfPresent()) {
+                log('[驿站水域检测] 驿站收货完成，重新点右上角退出再进屯田以恢复正常布告栏定位');
+                click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+                sleepWithHeartbeat(8000);
+                click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+                sleepWithHeartbeat(8000);
             }
+
+            click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
+            sleepWithHeartbeat(4500);
+            clickSafeClose();
+            sleepWithHeartbeat(500);
+
+            var imgCheck = safeCaptureScreen();
+            if (imgCheck) {
+                var matched = DriftGuard.matchReference(imgCheck);
+                if (matched) {
+                    var offOk = getReferenceOffset(imgCheck);
+                    imgCheck.recycle();
+                    log('[盲点回中] 第' + attempt + '次尝试成功对上中心画面！' + (offOk ? '（偏移 ' + offOk[0] + ',' + offOk[1] + '）' : ''));
+                    DriftGuard.reset();
+                    break;
+                }
+                if (prevAttemptPatch) {
+                    if (isSameAsPrevAttempt(imgCheck, prevAttemptPatch)) {
+                        needRandomDrag = true;
+                        log('[盲点回中] 第' + attempt + '次未对上基准图，且与上一张重合，下一轮触发随机拖屏');
+                    } else {
+                        needRandomDrag = false;
+                        log('[盲点回中] 第' + attempt + '次未对上基准图，但与上一张不同（画面仍在动），继续回中不拖屏');
+                    }
+                    prevAttemptPatch.recycle();
+                    prevAttemptPatch = null;
+                }
+                prevAttemptPatch = clipAttemptPatch(imgCheck);
+                imgCheck.recycle();
+            }
+        }
+    } finally {
+        if (prevAttemptPatch) {
+            prevAttemptPatch.recycle();
+            prevAttemptPatch = null;
         }
     }
 
@@ -1602,7 +1844,7 @@ function blindExitReenterAndRecenter(reasonLabel) {
     clickCenterTile(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
     var elapsed = 0, popped = false, speedupShowing = false;
     while (elapsed < 3000) {
-        sleep(200);
+        pausableSleep(200);
         elapsed += 200;
         renewLock();
         var imgNow = safeCaptureScreen();
@@ -1654,53 +1896,77 @@ function recoverFromFreeze(reasonLabel, kind) {
 function recoverPureFertileFromDrift() {
     toastLog("检测到良田画面偏移，触发四步重返良田恢复...");
     var attempt = 0;
-    while (true) {
-        attempt++;
-        renewLock();
-        if (attempt > 1) {
-            randomDragScreen(300);
-            sleepWithHeartbeat(600);
-            clickSafeClose();
-            sleepWithHeartbeat(800);
-        }
-        // 1. 点右上角退出
-        click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
-        sleepWithHeartbeat(8000);
-        // 2. 盲点主页屯田入口
-        click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
-        sleepWithHeartbeat(8000);
-        // 2.5 点过屯田坐标后、点回中坐标之前：检测左上角水域RGB，若落入驿站视角则先收货再退出重进屯田
-        while (handleStationScreenIfPresent()) {
+    var prevAttemptPatch = null;
+    var needRandomDrag = false;
+    try {
+        while (true) {
+            attempt++;
+            renewLock();
+            if (attempt > 1) {
+                if (needRandomDrag) {
+                    log('[良田回中] 上一轮画面与前一张重合，触发一次 randomDragScreen(300)');
+                    randomDragScreen(300);
+                    sleepWithHeartbeat(600);
+                    needRandomDrag = false;
+                }
+                clickSafeClose();
+                sleepWithHeartbeat(800);
+            }
+            // 1. 点右上角退出
             click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
             sleepWithHeartbeat(8000);
+            // 2. 盲点主页屯田入口
             click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
             sleepWithHeartbeat(8000);
-        }
-        // 3. 点告示牌回中
-        click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
-        sleepWithHeartbeat(4500);
-        clickSafeClose();
-        sleepWithHeartbeat(500);
-        // 4. 点左侧进良田按钮
-        click(FERTILE.ENTER_BTN[0], FERTILE.ENTER_BTN[1]);
-        sleepWithHeartbeat(1000);
-        // 5. 读秒未走完（小麦在长）才点一下中心定住镜头，与正常种完后的锁镜头动作一致
-        if (fertileFieldReadyAt > Date.now()) {
-            clickFertileSafeClose();
-            sleep(FERTILE.STEP_GAP_MS);
-            click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
-        }
-
-        // 过2秒检测是否成功返回良田并对上良田参考图
-        pausableSleep(2000);
-        var imgCheck = safeCaptureScreen();
-        if (imgCheck) {
-            var ok = matchFertileReference(imgCheck);
-            imgCheck.recycle();
-            if (ok) {
-                toastLog("已成功重返良田！");
-                break;
+            // 2.5 点过屯田坐标后、点回中坐标之前：检测左上角水域RGB，若落入驿站视角则先收货再退出重进屯田
+            while (handleStationScreenIfPresent()) {
+                click(CONFIG.exitGameBtn[0], CONFIG.exitGameBtn[1]);
+                sleepWithHeartbeat(8000);
+                click(CONFIG.lobbyEnterFarmBtn[0], CONFIG.lobbyEnterFarmBtn[1]);
+                sleepWithHeartbeat(8000);
             }
+            // 3. 点告示牌回中
+            click(CONFIG.noticeBoardRecenterBtn[0], CONFIG.noticeBoardRecenterBtn[1]);
+            sleepWithHeartbeat(4500);
+            clickSafeClose();
+            sleepWithHeartbeat(500);
+            // 4. 点左侧进良田按钮
+            click(FERTILE.ENTER_BTN[0], FERTILE.ENTER_BTN[1]);
+            sleepWithHeartbeat(1000);
+            // 5. 读秒未走完（小麦在长）才点一下中心定住镜头，与正常种完后的锁镜头动作一致
+            if (fertileFieldReadyAt > Date.now()) {
+                clickFertileSafeClose();
+                sleep(FERTILE.STEP_GAP_MS);
+                click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
+            }
+
+            // 过2秒检测是否成功返回良田并对上良田参考图
+            pausableSleep(2000);
+            var imgCheck = safeCaptureScreen();
+            if (imgCheck) {
+                var ok = matchFertileReference(imgCheck);
+                if (ok) {
+                    imgCheck.recycle();
+                    toastLog("已成功重返良田！");
+                    break;
+                }
+                if (prevAttemptPatch) {
+                    if (isSameAsPrevAttempt(imgCheck, prevAttemptPatch)) {
+                        needRandomDrag = true;
+                    } else {
+                        needRandomDrag = false;
+                    }
+                    prevAttemptPatch.recycle();
+                    prevAttemptPatch = null;
+                }
+                prevAttemptPatch = clipAttemptPatch(imgCheck);
+                imgCheck.recycle();
+            }
+        }
+    } finally {
+        if (prevAttemptPatch) {
+            prevAttemptPatch.recycle();
+            prevAttemptPatch = null;
         }
     }
 }
@@ -1737,7 +2003,7 @@ function clickAndAwaitMenu(clickX, clickY, stepLabel) {
         clickCenterTile(clickX, clickY);
         var elapsed = 0, popped = false, speedupShowing = false;
         while (elapsed < 3000) {
-            sleep(200);
+            pausableSleep(200);
             elapsed += 200;
             renewLock();
             var imgNow = safeCaptureScreen();
@@ -2220,8 +2486,9 @@ function waitReadyAndHarvest(forceNow, isCornPumpkinMode) {
             throw new RecoveredCycleSignal(waitDriftRes.mode, waitDriftRes.menuAlreadyOpen);
         }
 
-        // 【玉米南瓜专属】：主田南瓜满1小时后，上方田地第1轮玉米成熟，去上方收第1轮玉米并种第2轮玉米
-        if (isCornPumpkinMode && !cornPumpkinSecondCornDone && isUpperEnabled() && upperFieldReadyAt > 0) {
+        // 【玉米南瓜专属】：主田南瓜满1小时后，上方田地第1轮玉米成熟，去上方收第1轮玉米并种第2轮玉米（动态读取当前是否处于玉米南瓜挡）
+        var activeCPMode = isCornPumpkinMode || ((nextDriveMode || currentDriveMode) === 'manual' && (nextManualGear || currentManualGear) === 'corn_pumpkin');
+        if (activeCPMode && !cornPumpkinSecondCornDone && isUpperEnabled() && upperFieldReadyAt > 0) {
             var remUpper = upperFieldReadyAt - Date.now();
             if (remUpper <= pollMs && mainFieldReadyAt - Date.now() > stopMs) {
                 if (remUpper > 0) pausableSleep(remUpper);
@@ -2319,6 +2586,11 @@ function harvestAll(menuAlreadyOpen) {
 
 // ================= 纯良田独立挂机（带左鸡舍屋顶独立参考图与种后2秒偏移检测） =================
 function runPureFertileStep() {
+    hasEverPlantedMainField = true;
+    if (nextDriveMode !== 'manual' || nextManualGear !== 'fertile') {
+        applyPendingModeAndGearSwitch();
+        return;
+    }
     beginAction();
     if (!fertileReferencePatch) {
         captureFertileReferencePatch();
@@ -2331,7 +2603,15 @@ function runPureFertileStep() {
         var dLabel = debuffGearState.fertile ? "小麦（减益）" : "小麦";
         toastLog("继续等待良田" + dLabel + "，剩余 " + remSec + " 秒");
         while (Date.now() < fertileFieldReadyAt) {
+            if (nextDriveMode !== 'manual' || nextManualGear !== 'fertile') {
+                applyPendingModeAndGearSwitch();
+                return;
+            }
             pausableSleep(1000);
+        }
+        if (nextDriveMode !== 'manual' || nextManualGear !== 'fertile') {
+            applyPendingModeAndGearSwitch();
+            return;
         }
         beginAction();
     }
@@ -2388,6 +2668,10 @@ function runPureFertileStep() {
     var dispLabel = debuffGearState.fertile ? "小麦（减益）" : "小麦";
     toastLog("良田" + dispLabel + "等待 " + remainWaitSec + " 秒");
     while (Date.now() < fertileFieldReadyAt) {
+        if (nextDriveMode !== 'manual' || nextManualGear !== 'fertile') {
+            applyPendingModeAndGearSwitch();
+            return;
+        }
         pausableSleep(1000);
     }
 }
@@ -2464,24 +2748,49 @@ function applyPendingModeAndGearSwitch() {
 }
 
 // 当点继续时若读秒已归零（且非打开脚本第一次种植），弹出询问【种植 / 收割 / 取消】
+var activeZeroTimerDlg = null;
 function promptPlantOrHarvestOnZeroTimer() {
     var actionClicked = null;
+    if (activeZeroTimerDlg) {
+        try { activeZeroTimerDlg.dismiss(); } catch (e) {}
+        activeZeroTimerDlg = null;
+    }
     var dlg = dialogs.build({
         title: "读秒已归零",
         content: "请选择接下来要执行的动作：",
         positive: "种植",
         negative: "收割",
-        neutral: "取消"
+        neutral: "取消",
+        cancelable: false,
+        canceledOnTouchOutside: false
     }).on("any", function (action) {
         actionClicked = action;
+    }).on("cancel", function () {
+        if (actionClicked == null) actionClicked = "cancel";
+    }).on("dismiss", function () {
+        if (actionClicked == null) actionClicked = "cancel";
     });
+    activeZeroTimerDlg = dlg;
     dlg.show();
-    while (actionClicked == null) sleep(100);
-    return actionClicked; // "positive"=种植, "negative"=收割, "neutral"/其他=取消
+    while (actionClicked == null) {
+        sleep(100);
+        renewLock();
+        if (CTRL.paused || pauseTriggered || justResetAllTimers) {
+            try { dlg.dismiss(); } catch (e) {}
+            activeZeroTimerDlg = null;
+            return "cancel";
+        }
+    }
+    activeZeroTimerDlg = null;
+    return actionClicked; // "positive"=种植, "negative"=收割, "neutral"/"cancel"=取消
 }
 
 var justResetAllTimers = false;
 function resetAllTimersToZero() {
+    if (activeZeroTimerDlg) {
+        try { activeZeroTimerDlg.dismiss(); } catch (e) {}
+        activeZeroTimerDlg = null;
+    }
     // 1. 主田计时归零（保留 hasEverPlantedMainField = true，确保点中心地后按播放依然询问【种植 / 收割 / 取消】）
     hasEverPlantedMainField = true;
     mainPlantedCrop = null;
@@ -2528,105 +2837,126 @@ function resetAllTimersToZero() {
     pendingMenuAlreadyOpen = false;
     centerTouched = false;
 
+    // 6. 清空旧基准图，下次点▶时重新采集当前画面作为新基准图（完全等同于重启脚本）
+    if (referencePatch) {
+        try { referencePatch.recycle(); } catch (e) {}
+        referencePatch = null;
+    }
+    if (fertileReferencePatch) {
+        try { fertileReferencePatch.recycle(); } catch (e) {}
+        fertileReferencePatch = null;
+    }
+    DriftGuard.reset();
+
     applyPendingModeAndGearSwitch();
     syncUI();
 }
 
 function handlePauseAndResume() {
-    setActionInProgress(false);
-    while (CTRL.paused) {
-        sleep(200);
-        renewLock();
-    }
-    if (justResetAllTimers) {
-        resetAllTimersToZero();
-        justResetAllTimers = false;
-    }
-    pauseTriggered = false;
-    setActionInProgress(true);
-    try {
-        if (nextDriveMode === 'manual' && nextManualGear === 'fertile') {
-            currentDriveMode = 'manual';
-            currentManualGear = 'fertile';
-            syncUI();
-            return;
+    while (true) {
+        setActionInProgress(false);
+        while (CTRL.paused) {
+            sleep(150);
+            renewLock();
         }
-
-        if (!referencePatch) {
-            captureReferencePatch();
+        if (justResetAllTimers) {
+            resetAllTimersToZero();
+            justResetAllTimers = false;
         }
+        pauseTriggered = false;
+        setActionInProgress(true);
 
-        // 情况1：脚本打开后第一次点继续（尚未种过主田），直接默认开始种植，不弹窗询问
-        if (!hasEverPlantedMainField) {
-            applyPendingModeAndGearSwitch();
-            pausableSleep(300);
-            clickSafeClose();
-            pausableSleep(400);
-            DriftGuard.reset();
-            bubbleDetectSuspended = false;
-            skipToHarvestOnce = false;
-            skipWaitOnce = false;
-            pendingMenuAlreadyOpen = false;
-            return;
-        }
-
-        // 情况2：主田读秒尚未归零，直接继续走原读秒等待，绝不重置或丢失进度（同时同步挡位开关配置）
-        if (mainFieldReadyAt > Date.now()) {
-            applyPendingModeAndGearSwitch();
-            pausableSleep(300);
-            clickSafeClose();
-            pausableSleep(400);
-            DriftGuard.reset();
-            bubbleDetectSuspended = false;
-            var remainSec = Math.max(0, Math.round((mainFieldReadyAt - Date.now()) / 1000));
-            toastLog('继续等待' + getCropDisplayName(mainPlantedCrop || currentCrop) + '，剩余 ' + remainSec + ' 秒');
-            skipToHarvestOnce = true;
-            skipWaitOnce = false;
-            pendingMenuAlreadyOpen = false;
-            return;
-        }
-
-        // 情况3：后续点继续时读秒已归零，弹窗询问【种植 / 收割 / 取消】
-        var userChoice = promptPlantOrHarvestOnZeroTimer();
-        if (userChoice !== "positive" && userChoice !== "negative") {
-            CTRL.paused = true;
-            syncUI();
-            handlePauseAndResume();
-            return;
-        }
-
-        pausableSleep(300);
-        clickSafeClose();
-        pausableSleep(500);
-        DriftGuard.reset();
-        bubbleDetectSuspended = false;
-
-        if (userChoice === "positive") {
-            // 用户选择【种植】：应用新选好的挡位，上下田都直接走种植
-            plantDone = false;
-            mainFieldReadyAt = 0;
-            upperLastPlantTime = 0;
-            upperPlantedCrop = null;
-            upperFieldReadyAt = 0;
-            applyPendingModeAndGearSwitch();
-            skipToHarvestOnce = false;
-            skipWaitOnce = false;
-            pendingMenuAlreadyOpen = false;
-            toastLog('开始种植：' + getCropDisplayName(currentCrop));
-        } else {
-            // 用户选择【收割】：先点中间土地呼出镰刀收割主田，随后去上方田地收割并继续新流程
-            toastLog('开始收割：' + getCropDisplayName(mainPlantedCrop || currentCrop));
-            if (upperFieldReadyAt > Date.now()) {
-                upperFieldReadyAt = Date.now();
+        try {
+            if (nextDriveMode === 'manual' && nextManualGear === 'fertile') {
+                currentDriveMode = 'manual';
+                currentManualGear = 'fertile';
+                syncUI();
+                return;
             }
-            clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'resume_harvest');
-            skipToHarvestOnce = true;
-            skipWaitOnce = true;
-            pendingMenuAlreadyOpen = true;
+
+            // 情况1：脚本刚启动第一次点继续（尚未种过主田且未执行过长按重置），直接默认开始种植，不弹窗询问
+            if (!hasEverPlantedMainField) {
+                applyPendingModeAndGearSwitch();
+                pausableSleep(300);
+                clickSafeClose();
+                pausableSleep(400);
+                if (!referencePatch) captureReferencePatch();
+                DriftGuard.reset();
+                bubbleDetectSuspended = false;
+                skipToHarvestOnce = false;
+                skipWaitOnce = false;
+                pendingMenuAlreadyOpen = false;
+                return;
+            }
+
+            // 情况2：主田读秒尚未归零，直接继续走原读秒等待，绝不重置或丢失进度（同时同步挡位开关配置）
+            if (mainFieldReadyAt > Date.now()) {
+                applyPendingModeAndGearSwitch();
+                pausableSleep(300);
+                clickSafeClose();
+                pausableSleep(400);
+                if (!referencePatch) captureReferencePatch();
+                DriftGuard.reset();
+                bubbleDetectSuspended = false;
+                var remainSec = Math.max(0, Math.round((mainFieldReadyAt - Date.now()) / 1000));
+                toastLog('继续等待' + getCropDisplayName(mainPlantedCrop || currentCrop) + '，剩余 ' + remainSec + ' 秒');
+                skipToHarvestOnce = true;
+                skipWaitOnce = false;
+                pendingMenuAlreadyOpen = false;
+                return;
+            }
+
+            // 情况3：后续点继续时读秒已归零（含长按重置后），弹窗询问【种植 / 收割 / 取消】
+            var userChoice = promptPlantOrHarvestOnZeroTimer();
+            if (userChoice !== "positive" && userChoice !== "negative") {
+                CTRL.paused = true;
+                syncUI();
+                continue;
+            }
+
+            pausableSleep(300);
+            clickSafeClose();
+            pausableSleep(500);
+            if (!referencePatch) captureReferencePatch();
+            DriftGuard.reset();
+            bubbleDetectSuspended = false;
+
+            if (userChoice === "positive") {
+                // 用户选择【种植】：应用新选好的挡位，上下田都直接走种植
+                plantDone = false;
+                mainFieldReadyAt = 0;
+                upperLastPlantTime = 0;
+                upperPlantedCrop = null;
+                upperFieldReadyAt = 0;
+                applyPendingModeAndGearSwitch();
+                skipToHarvestOnce = false;
+                skipWaitOnce = false;
+                pendingMenuAlreadyOpen = false;
+                toastLog('开始种植：' + getCropDisplayName(currentCrop));
+                return;
+            } else {
+                // 用户选择【收割】：上下田严格对齐（同收同种）
+                // 不在 handlePauseAndResume 内直接跑 clickAndAwaitMenu（交由主循环 try 块统一执行，防止异常跳出主循环导致卡死）
+                var harvestCropKey = mainPlantedCrop || currentCrop;
+                applyPendingModeAndGearSwitch();
+                var targetHarvKey = mainPlantedCrop || currentCrop || harvestCropKey;
+                toastLog('开始收割：' + getCropDisplayName(targetHarvKey));
+                upperPlantedCrop = upperPlantedCrop || ((currentDriveMode === 'manual' && currentManualGear === 'corn_pumpkin') ? 'corn' : targetHarvKey);
+                upperLastPlantTime = Date.now();
+                upperFieldReadyAt = Date.now();
+                skipToHarvestOnce = true;
+                skipWaitOnce = true;
+                pendingMenuAlreadyOpen = false;
+                return;
+            }
+        } catch (e2) {
+            if (e2 instanceof PauseSignal) {
+                CTRL.paused = true;
+                syncUI();
+                continue;
+            }
+            throw e2;
         }
-    } catch (e2) {
-        if (e2 instanceof PauseSignal) handlePauseAndResume();
-        else throw e2;
     }
 }
 
@@ -2836,12 +3166,14 @@ function syncUI() {
 function selectDriveMode(targetMode) {
     nextDriveMode = targetMode;
     saveUIConfig();
-    if (CTRL.paused && (!plantDone || mainFieldReadyAt <= 0)) {
+    if (CTRL.paused) {
         currentDriveMode = targetMode;
-        if (currentDriveMode === 'auto') {
-            currentCrop = getCurrentAutoStepConfig().crop;
-        } else {
-            currentCrop = (currentManualGear === 'corn_pumpkin') ? 'pumpkin' : (CROPS[currentManualGear] ? currentManualGear : 'soy');
+        if (!plantDone || mainFieldReadyAt <= 0 || Date.now() >= mainFieldReadyAt) {
+            if (currentDriveMode === 'auto') {
+                currentCrop = getCurrentAutoStepConfig().crop;
+            } else {
+                currentCrop = (currentManualGear === 'corn_pumpkin') ? 'pumpkin' : (CROPS[currentManualGear] ? currentManualGear : 'soy');
+            }
         }
     }
     syncUI();
@@ -2855,13 +3187,15 @@ function selectManualGear(targetGear) {
     nextManualGear = targetGear;
     nextDriveMode = 'manual';
     saveUIConfig();
-    if (CTRL.paused && (!plantDone || mainFieldReadyAt <= 0)) {
+    if (CTRL.paused) {
         currentDriveMode = 'manual';
         currentManualGear = targetGear;
-        if (targetGear === 'corn_pumpkin') {
-            currentCrop = 'pumpkin';
-        } else if (CROPS[targetGear]) {
-            currentCrop = targetGear;
+        if (!plantDone || mainFieldReadyAt <= 0 || Date.now() >= mainFieldReadyAt) {
+            if (targetGear === 'corn_pumpkin') {
+                currentCrop = 'pumpkin';
+            } else if (CROPS[targetGear]) {
+                currentCrop = targetGear;
+            }
         }
     }
     syncUI();
@@ -3278,6 +3612,13 @@ while (true) {
         }
 
         loopCount++;
+        // 若从良田等挡位切回玉米南瓜/普通挡位时，主田作物仍在读秒期（尚未成熟），自动衔接进入等待收割分支，绝不重复点中间地去走种植
+        if (!skipToHarvestOnce && plantDone && mainFieldReadyAt > Date.now()) {
+            applyPendingModeAndGearSwitch();
+            skipToHarvestOnce = true;
+            skipWaitOnce = false;
+            pendingMenuAlreadyOpen = false;
+        }
         if (skipToHarvestOnce) {
             skipToHarvestOnce = false;
             var menuOpenH = pendingMenuAlreadyOpen;
@@ -3288,11 +3629,15 @@ while (true) {
             if (menuOpenH) {
                 beginAction();
                 harvestAll(true);
+            } else if (forceNow) {
+                beginAction();
+                harvestAll(false);
             } else {
-                waitReadyAndHarvest(forceNow, isCP);
+                waitReadyAndHarvest(false, isCP);
             }
-            if (isCP && isUpperEnabled()) {
-                runFertileAndUpperFlow('corn', true);
+            // 主田收割完毕后，确保上方田地读秒同步归零，随后进入下一轮主田种植 -> 上方田地先收后种，保持上下严格同收同种对齐
+            if (upperLastPlantTime > 0 && upperFieldReadyAt > Date.now()) {
+                upperFieldReadyAt = Date.now();
             }
             if (currentDriveMode === 'auto') {
                 advanceAutoStepAfterHarvest();
@@ -3327,8 +3672,8 @@ while (true) {
 
                 waitReadyAndHarvest(false, true);
 
-                if (isUpperEnabled()) {
-                    runFertileAndUpperFlow('corn', true);
+                if (upperLastPlantTime > 0 && upperFieldReadyAt > Date.now()) {
+                    upperFieldReadyAt = Date.now();
                 }
                 if (stationGoodsPending) collectStationGoods();
                 applyPendingModeAndGearSwitch();
@@ -3398,7 +3743,8 @@ while (true) {
     } catch (e) {
         bubbleFlowActive = false;
         if (e instanceof PauseSignal) {
-            handlePauseAndResume();
+            CTRL.paused = true;
+            syncUI();
         } else if (e instanceof RestartCycleSignal) {
             skipToHarvestOnce = false;
             skipWaitOnce = false;
