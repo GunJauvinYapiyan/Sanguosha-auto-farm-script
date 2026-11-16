@@ -1246,7 +1246,9 @@ function isRiceRoundNow() {
 
 // 气泡点击后若检测到画面偏移：先点SafeClose，再执行三步断线重连回中直到对上中心画面，不碰中心地块菜单
 function recenterCenterOnlyAfterBubbleDrift(reasonLabel) {
-    log('[气泡防偏] ' + reasonLabel + '：检测到点气泡后画面偏移，先点SafeClose再三步回中');
+    log('[气泡防偏] ' + reasonLabel + '：检测到点气泡后画面偏移，先双指内缩解卡+点SafeClose再三步回中');
+    pinchInScreen(350);
+    sleepWithHeartbeat(500);
     clickSafeClose();
     sleepWithHeartbeat(500);
     var attempt = 0;
@@ -1268,7 +1270,9 @@ function recenterCenterOnlyAfterBubbleDrift(reasonLabel) {
                     }
                 }
                 if (needRandomDrag) {
-                    log('[气泡防偏] 上一轮画面与前一张重合（疑似卡死或死循环），触发一次 randomDragScreen(300)');
+                    log('[气泡防偏] 上一轮画面与前一张重合（疑似卡死或死循环），触发双指内缩 pinchInScreen(350) + randomDragScreen(300)');
+                    pinchInScreen(350);
+                    sleepWithHeartbeat(500);
                     randomDragScreen(300);
                     sleepWithHeartbeat(600);
                     needRandomDrag = false;
@@ -1735,6 +1739,19 @@ function isDisconnectDialogShowing(img) {
     var diffB = Math.abs(avgC[2] - CONFIG.disconnectDialogColorRef[2]);
     return Math.max(diffR, diffG, diffB) <= CONFIG.disconnectDialogColorTolerance;
 }
+// 双指方向相反向内捏合缩放（解除单指拖动无法解开的触控死锁/镜头缩放卡死）
+function pinchInScreen(durationMs) {
+    var dur = durationMs || 350;
+    try {
+        gestures(
+            [0, dur, [650, 320], [1080, 500]],
+            [0, dur, [1760, 760], [1330, 580]]
+        );
+    } catch (e) {
+        log("[双指缩放异常] " + e);
+    }
+}
+
 function randomDragScreen(durationMs) {
     var x1 = 500 + Math.floor(Math.random() * 1400);
     var y1 = 250 + Math.floor(Math.random() * 500);
@@ -1751,6 +1768,11 @@ function blindExitReenterAndRecenter(reasonLabel) {
     }
     toastLog('触发盲点回中恢复（' + reasonLabel + '），请勿操作手机');
     saveFreezeDebugImg('recover_start');
+    log('[盲点回中] 优先执行一次双指内缩 pinchInScreen(350) 解除潜在触控/镜头卡死');
+    pinchInScreen(350);
+    sleepWithHeartbeat(500);
+    clickSafeClose();
+    sleepWithHeartbeat(500);
     handleStationScreenIfPresent();
     var attempt = 0;
     var prevAttemptPatch = null;
@@ -1771,7 +1793,9 @@ function blindExitReenterAndRecenter(reasonLabel) {
                     }
                 }
                 if (needRandomDrag) {
-                    log('[盲点回中] 上一轮画面与前一张重合（疑似卡死或死循环），触发一次 randomDragScreen(300)');
+                    log('[盲点回中] 上一轮画面与前一张重合（疑似卡死或死循环），触发双指内缩 pinchInScreen(350) + randomDragScreen(300)');
+                    pinchInScreen(350);
+                    sleepWithHeartbeat(500);
                     randomDragScreen(300);
                     sleepWithHeartbeat(600);
                     needRandomDrag = false;
@@ -1895,6 +1919,10 @@ function recoverFromFreeze(reasonLabel, kind) {
 // 回来后只定住镜头，绝不点种/拖拽：此时小麦多半还没熟，空拖会拖屏；收种统一交给主步骤等读秒到点再做
 function recoverPureFertileFromDrift() {
     toastLog("检测到良田画面偏移，触发四步重返良田恢复...");
+    pinchInScreen(350);
+    sleepWithHeartbeat(500);
+    clickSafeClose();
+    sleepWithHeartbeat(500);
     var attempt = 0;
     var prevAttemptPatch = null;
     var needRandomDrag = false;
@@ -1904,7 +1932,9 @@ function recoverPureFertileFromDrift() {
             renewLock();
             if (attempt > 1) {
                 if (needRandomDrag) {
-                    log('[良田回中] 上一轮画面与前一张重合，触发一次 randomDragScreen(300)');
+                    log('[良田回中] 上一轮画面与前一张重合，触发双指内缩 pinchInScreen(350) + randomDragScreen(300)');
+                    pinchInScreen(350);
+                    sleepWithHeartbeat(500);
                     randomDragScreen(300);
                     sleepWithHeartbeat(600);
                     needRandomDrag = false;
