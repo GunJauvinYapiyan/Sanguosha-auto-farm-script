@@ -995,7 +995,60 @@ function matchSteps(fromPt, toPt, nextSteps, nextDist) {
     return Math.max(2, Math.round(d * nextSteps / nextDist));
 }
 
-function dragFarmLoop(key) {
+// ================= 小麦/水稻收割：终点真实停留 + 脱手前截屏判爆仓 =================
+// gesture 的时间是按"路径长度"分配的：重复同一个坐标的点路径长度为0，分不到时间，镰刀会直接消失。
+// 所以停留靠终点处±10px的来回微移实现，并按整条轨迹的像素/毫秒速度换算需要多少次微移才能停够指定毫秒。
+var SICKLE_END_HOLD_MS = 500;
+function isHoldHarvestCrop(cropKey) {
+    return cropKey === 'wheat' || cropKey === 'rice';
+}
+function pathLength(pts) {
+    var len = 0;
+    for (var i = 1; i < pts.length; i++) {
+        len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    }
+    return len;
+}
+// 在终点追加原地微幅抖动（±10px），返回加上停留后的手势总时长
+function appendEndpointHold(pts, sweepDurationMs, holdMs) {
+    var sweepLen = Math.max(1, pathLength(pts));
+    var pxPerMs = sweepLen / sweepDurationMs;
+    var needHoldLen = pxPerMs * holdMs;
+    var endPt = pts[pts.length - 1];
+    var stepDist = 20;
+    var stepCount = Math.max(2, Math.ceil(needHoldLen / stepDist));
+    for (var i = 0; i < stepCount; i++) {
+        pts.push([endPt[0] + ((i % 2 === 0) ? 10 : -10), endPt[1]]);
+    }
+    pts.push([endPt[0], endPt[1]]);
+    return sweepDurationMs + holdMs;
+}
+// 执行带终点停留的收割手势：在停留中段截一张图判爆仓（此时重复书帖弹窗还没出来，爆仓窗口是干净的），随后脱手。返回是否检测到爆仓
+function gestureWithEndHoldAndSnap(pts, sweepDurationMs, logTag) {
+    var totalDuration = appendEndpointHold(pts, sweepDurationMs, SICKLE_END_HOLD_MS);
+    var snapDelay = sweepDurationMs + Math.round(SICKLE_END_HOLD_MS * 0.5);
+    var overflow = false;
+    var snapThread = threads.start(function () {
+        try {
+            sleep(snapDelay);
+            var imgSnap = safeCaptureScreen();
+            if (imgSnap) {
+                if (DriftGuard.isWarehouseFull(imgSnap)) {
+                    overflow = true;
+                    log(logTag + ' 终点停留中脱手前截屏检测到爆仓弹窗！');
+                }
+                imgSnap.recycle();
+            }
+        } catch (e) {}
+    });
+    gesture.apply(null, [totalDuration].concat(pts));
+    if (snapThread) {
+        try { snapThread.join(1000); } catch (e) {}
+    }
+    return overflow;
+}
+
+function dragFarmLoop(key, harvestCropKey) {
     var p = PARAMS[key];
     var speedFactor = getLowerSpeedFactor();
     var points = [];
@@ -1038,30 +1091,10 @@ function dragFarmLoop(key) {
     points = points.concat(generateLine(lastCorner, p.hook1, hookSteps));
     points = points.concat(generateLine(p.hook1, p.hook2, hookSteps));
     points = points.concat(generateLine(p.hook2, CONFIG.CENTER_TILE, hookSteps));
-    if (key === 'sickle') {
-        // 收割到终点后按住约0.5秒不立即脱手，在脱手前截一张图检测爆仓弹窗（避免脱手瞬间被重复书帖弹窗盖住）
-        var holdEndPts = 28; // 28 * 25ms = 700ms
-        for (var h = 0; h < holdEndPts; h++) points.push(CONFIG.CENTER_TILE);
-        var durationH = Math.max(points.length * 25, 500);
-        var snapDelay = Math.max(200, durationH - 200);
-        var preReleaseOverflow = false;
-        var snapThread = threads.start(function () {
-            try {
-                sleep(snapDelay);
-                var imgSnap = safeCaptureScreen();
-                if (imgSnap) {
-                    if (DriftGuard.isWarehouseFull(imgSnap)) {
-                        preReleaseOverflow = true;
-                        log('[主田收割] 终点按住0.5秒脱手前截屏检测到爆仓弹窗！');
-                    }
-                    imgSnap.recycle();
-                }
-            } catch (e) {}
-        });
-        gesture.apply(null, [durationH].concat(points));
-        if (snapThread) {
-            try { snapThread.join(1000); } catch (e) {}
-        }
+    if (key === 'sickle' && isHoldHarvestCrop(harvestCropKey)) {
+        // 仅小麦/水稻：收割到终点后真实停留约0.5秒再脱手，脱手前截屏检测爆仓弹窗（避免脱手瞬间被重复书帖弹窗盖住）
+        var mainSweepMs = Math.max(points.length * 25, 500);
+        var preReleaseOverflow = gestureWithEndHoldAndSnap(points, mainSweepMs, '[主田收割]');
         centerTouched = true;
         return preReleaseOverflow;
     }
@@ -1220,27 +1253,12 @@ function upperFieldSweep(kind, cropKey) {
     var pts = cornBuildGesturePoints(icon);
     var preReleaseOverflow = false;
     if (!isPlant) {
-        // 上方田地收割在终点按住0.5秒截屏检测爆仓后再脱手（防止脱手瞬间弹出重复书帖遮挡爆仓窗口）
-        var holdEndPts = 28; // 28 * 25ms = 700ms
-        for (var h = 0; h < holdEndPts; h++) pts.push(CORN_FIELD.CENTER);
-        var durationH = Math.max(pts.length * CORN_SWEEP.POINT_MS, 500);
-        var snapDelay = Math.max(200, durationH - 200);
-        var snapThread = threads.start(function () {
-            try {
-                sleep(snapDelay);
-                var imgSnap = safeCaptureScreen();
-                if (imgSnap) {
-                    if (DriftGuard.isWarehouseFull(imgSnap)) {
-                        preReleaseOverflow = true;
-                        log('[上方田地收割] 终点按住0.5秒脱手前截屏检测到爆仓弹窗！');
-                    }
-                    imgSnap.recycle();
-                }
-            } catch (e) {}
-        });
-        gesture.apply(null, [durationH].concat(pts));
-        if (snapThread) {
-            try { snapThread.join(1000); } catch (e) {}
+        var upperSweepMs = Math.max(pts.length * CORN_SWEEP.POINT_MS, 500);
+        if (isHoldHarvestCrop(cKey)) {
+            // 仅小麦/水稻：终点真实停留约0.5秒，脱手前截屏检测爆仓（防止脱手瞬间弹出重复书帖遮挡爆仓窗口）
+            preReleaseOverflow = gestureWithEndHoldAndSnap(pts, upperSweepMs, '[上方田地收割]');
+        } else {
+            gesture.apply(null, [upperSweepMs].concat(pts));
         }
     } else {
         var duration = Math.max(pts.length * CORN_SWEEP.POINT_MS, 500);
@@ -2836,7 +2854,7 @@ function harvestAll(menuAlreadyOpen) {
     if (!menuAlreadyOpen) {
         clickAndAwaitMenu(CONFIG.targetTile[0], CONFIG.targetTile[1], 'harvest');
     }
-    var preReleaseFull = dragFarmLoop(CROPS[harvKey].harvestKey);
+    var preReleaseFull = dragFarmLoop(CROPS[harvKey].harvestKey, harvKey);
     pausableSleep(500);
     handlePostLoopPopups('收割' + getCropDisplayName(harvKey), harvKey);
 
