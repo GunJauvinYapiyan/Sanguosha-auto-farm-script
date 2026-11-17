@@ -420,7 +420,7 @@ function recordUpperFieldPlanted(cropKey) {
     upperPlantedCrop = cropKey;
     upperLastPlantTime = Date.now();
     var cdSec = getCropCooldownSec(cropKey);
-    upperFieldReadyAt = upperLastPlantTime + cdSec * 1000;
+    upperFieldReadyAt = upperLastPlantTime + cdSec * 1000 + 2000;
 }
 function fertileReadyAtFrom(plantTime) {
     return plantTime + getFertileCooldownSec() * 1000 + FERTILE.READY_BUFFER_MS;
@@ -1153,13 +1153,27 @@ function upperFieldSweep(kind, cropKey) {
     pausableSleep(400);
     click(CORN_FIELD.CENTER[0], CORN_FIELD.CENTER[1]);
     pausableSleep(CORN_SWEEP.menuWaitMs);
+    if (!isPlant) {
+        for (var waitTry = 0; waitTry < 3; waitTry++) {
+            var imgSpd = safeCaptureScreen();
+            var spdShowing = imgSpd ? isCropSpeedupPopupShowing(imgSpd) : false;
+            if (imgSpd) imgSpd.recycle();
+            if (!spdShowing) break;
+            log("[上方田地] 检测到上方" + dispName + "弹出加速窗口（尚差几秒成熟），关闭弹窗再等10秒后重试收割");
+            click(CORN_FIELD.CLEAN_SPOT[0], CORN_FIELD.CLEAN_SPOT[1]);
+            pausableSleep(10000);
+            click(CORN_FIELD.CENTER[0], CORN_FIELD.CENTER[1]);
+            pausableSleep(CORN_SWEEP.menuWaitMs);
+        }
+    }
     var icon = isPlant ? cObj.seedIcon : CONFIG.sickleIcon;
     var pts = cornBuildGesturePoints(icon);
     var duration = Math.max(pts.length * CORN_SWEEP.POINT_MS, 500);
+    gesture.apply(null, [duration].concat(pts));
     if (isPlant) {
+        // 必须在整片上方田地全部拖种完毕后再启动计时，防止第1小时到点时后半片玉米还差几秒未熟弹出加速窗
         recordUpperFieldPlanted(cKey);
     }
-    gesture.apply(null, [duration].concat(pts));
     pausableSleep(500);
     if (!isPlant) {
         var imgCheck = safeCaptureScreen();
@@ -3665,10 +3679,7 @@ while (true) {
             } else {
                 waitReadyAndHarvest(false, isCP);
             }
-            // 主田收割完毕后，确保上方田地读秒同步归零，随后进入下一轮主田种植 -> 上方田地先收后种，保持上下严格同收同种对齐
-            if (upperLastPlantTime > 0 && upperFieldReadyAt > Date.now()) {
-                upperFieldReadyAt = Date.now();
-            }
+            // 若是手动点【收割】(forceNow)则上方田地已在handlePauseAndResume中对齐为立即收割；正常到点时保留upperFieldReadyAt由runUpperFieldFlow自动补足剩余秒数
             if (currentDriveMode === 'auto') {
                 advanceAutoStepAfterHarvest();
             }
@@ -3702,9 +3713,6 @@ while (true) {
 
                 waitReadyAndHarvest(false, true);
 
-                if (upperLastPlantTime > 0 && upperFieldReadyAt > Date.now()) {
-                    upperFieldReadyAt = Date.now();
-                }
                 if (stationGoodsPending) collectStationGoods();
                 applyPendingModeAndGearSwitch();
                 continue;
