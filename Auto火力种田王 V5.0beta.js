@@ -2533,10 +2533,10 @@ function doFertileHarvestAndPlantInner() {
     }
     fertilePlantWheat();
     recordFertileFieldPlanted();
+    sleep(FERTILE.STEP_GAP_MS);
+    clickFertileSafeClose();
     if (silentCheckStationInFertile()) stationGoodsPending = true;
     else sleep(FERTILE.STEP_GAP_MS);
-    clickFertileSafeClose();
-    sleep(FERTILE.STEP_GAP_MS);
 }
 
 // 主田种完后：马上去良田（成熟则顺便0.2s收种，未成熟则仅做借道）→ 马上去上方田地种收 → 回中
