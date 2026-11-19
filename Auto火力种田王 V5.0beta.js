@@ -1,4 +1,4 @@
-// ================= Auto火力种田王V5.0（换挡版） =================
+// ================= Auto火力种田王 V5.0beta =================
 // 自动挡（良田+水稻-大豆-2甘蔗轮值，2甘蔗Debuff转玉米） + 手动挡（六挡作物 / 2玉米（上）-1南瓜（下） / 纯良田）
 // 手动挡作物长按1秒可转该作物的一阶段debuff阶段，关闭上方田地后则不提供“玉米-南瓜”选项。
 // 滑动变速旨在适应想用虚拟机挂机的场景（因为在作物经验上限大幅提高的场景，很难做到全天候手植）。目前虚拟机可以完美适应畜牧业和良田常驻，种地的话速度调到30%倒也还行，就是避免不了很多漏植。晚间当然最好还是用真机挂机，其余时间可以用虚拟机挂机，虚拟机的使用方法自行问AI看看，稍微有点繁琐。
@@ -180,6 +180,12 @@ var CONFIG = {
     stationGoodsCheckPoint: [2067, 910],
     stationGoodsColor: [100, 166, 65],
     stationGoodsColorTolerance: 25,
+    // 驿站绿点所在的横向带 [x, y, w, h]：底部工具栏会在静止位置(绿点x≈2020)和UI向两侧挤开的位置(x≈2058，还可能更右)之间移动，
+    // 单点/小方框只能覆盖其中一小段位置，所以改为扫整条带，数接近目标色的像素，并要求它们聚成一团
+    stationGoodsCheckBand: [1985, 898, 135, 55],
+    stationGoodsBandTolerance: 35,
+    stationGoodsMinHits: 12,
+    stationGoodsMaxSpan: 70,
     stationIcon: [2020, 965],
     stationHarvestBtn: [2070, 975],
     stationLoadBtn: [2070, 785],
@@ -1765,8 +1771,32 @@ function runRanchFlow(mode) {
 }
 
 // ================= 驿站出货、水域检测与自动装载 =================
-function checkStationHasGoods(img) {
-    return regionHasColorNear(img, CONFIG.stationGoodsCheckPoint[0], CONFIG.stationGoodsCheckPoint[1], 15, CONFIG.stationGoodsColor, CONFIG.stationGoodsColorTolerance, 5);
+function checkStationHasGoods(img, tag) {
+    var band = CONFIG.stationGoodsCheckBand;
+    var T = CONFIG.stationGoodsColor, tol = CONFIG.stationGoodsBandTolerance;
+    var x0 = Math.max(0, band[0]), y0 = Math.max(0, band[1]);
+    var x1 = Math.min(img.getWidth() - 1, band[0] + band[2]);
+    var y1 = Math.min(img.getHeight() - 1, band[1] + band[3]);
+    var hit = 0, sumX = 0, minX = 99999, maxX = -1, minY = 99999, maxY = -1;
+    for (var x = x0; x <= x1; x += 3) {
+        for (var y = y0; y <= y1; y += 3) {
+            var c = images.pixel(img, x, y);
+            var d = Math.max(Math.abs(colors.red(c) - T[0]), Math.abs(colors.green(c) - T[1]), Math.abs(colors.blue(c) - T[2]));
+            if (d <= tol) {
+                hit++;
+                sumX += x;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    var spanX = hit > 0 ? (maxX - minX) : 0, spanY = hit > 0 ? (maxY - minY) : 0;
+    var has = hit >= CONFIG.stationGoodsMinHits && spanX <= CONFIG.stationGoodsMaxSpan && spanY <= CONFIG.stationGoodsMaxSpan;
+    // 每次检测记一行：命中数、绿点中心x（x≈2020静止，x≈2058被挤开）、范围。有货却没触发时，看这行就能知道当时绿点在哪
+    log('[驿站检测' + (tag ? ':' + tag : '') + '] ' + (has ? '有绿点' : '无绿点') + ' 命中' + hit + (hit > 0 ? ' 中心x≈' + Math.round(sumX / hit) + ' 范围' + spanX + 'x' + spanY : ''));
+    return has;
 }
 function isOnStationScreen(img) {
     return regionHasColorNear(img, CONFIG.stationScreenCheckPoint[0], CONFIG.stationScreenCheckPoint[1], 15, CONFIG.stationScreenColor, CONFIG.stationScreenColorTolerance, 5);
@@ -2482,32 +2512,28 @@ function fertileDue() {
     if (fertileFieldReadyAt === 0) return true;
     return Date.now() >= fertileFieldReadyAt;
 }
-function silentCheckStationInFertile() {
-    sleep(FERTILE.STATION_CHECK_DELAY_MS);
-    var img = safeCaptureScreen();
-    if (!img) return false;
-    var has = false;
-    try { has = checkStationHasGoods(img); } catch (e) {}
-    img.recycle();
-    return has;
-}
 function doFertileHarvestAndPlantInner() {
-    // 调用前已确认读秒到点（小麦已熟）：三连点收割呼出种子栏 → 优先截屏判定是否爆仓弹窗
+    // 单次截屏同时判定爆仓与驿站绿点：
+    // 1. 进良田后只点一次中心坐标完成收割（此时土地未选中、驿站图标可见；若爆仓也会立即弹窗）→ 等200ms截一张图同时测爆仓和驿站绿点
+    // 2. 若爆仓：点掉爆仓弹窗 → 回中按挡位去仓库变卖 → 重新进良田循环重试
+    // 3. 若未爆仓：点一下良田SafeClose（消除可能的书帖弹窗）→ 再点一次中心坐标呼出种子栏 → 拖小麦种植 → 点良田SafeClose
     while (true) {
-        for (var i = 0; i < 3; i++) {
-            click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
-            if (i < 2) sleep(FERTILE.TRIPLE_GAP_MS);
-        }
-        sleep(FERTILE.PRE_DRAG_MS);
-        var imgFull = safeCaptureScreen();
+        click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
+        sleep(FERTILE.STEP_GAP_MS);
+
+        var img = safeCaptureScreen();
         var isFullNow = false;
-        if (imgFull) {
-            isFullNow = DriftGuard.isWarehouseFull(imgFull);
-            imgFull.recycle();
+        if (img) {
+            isFullNow = DriftGuard.isWarehouseFull(img);
+            if (!isFullNow) {
+                try {
+                    if (checkStationHasGoods(img, '良田收割后')) stationGoodsPending = true;
+                } catch (e) {}
+            }
+            img.recycle();
         }
         if (!isFullNow) break;
 
-        // 常规轮良田触发爆仓（一颗未收，无书帖弹窗）：消爆仓弹窗 → 回中 → 按挡位去仓库变卖 → 重新进良田收种
         toastLog('[良田爆仓] 常规轮良田收割触发爆仓，回仓库变卖后重新进良田收种');
         clickFertileSafeClose();
         pausableSleep(500);
@@ -2531,12 +2557,16 @@ function doFertileHarvestAndPlantInner() {
         click(FERTILE.ENTER_BTN[0], FERTILE.ENTER_BTN[1]);
         pausableSleep(FERTILE.ENTER_WAIT_MS);
     }
+
+    clickFertileSafeClose();
+    sleep(FERTILE.STEP_GAP_MS);
+    click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
+    sleep(FERTILE.PRE_DRAG_MS);
     fertilePlantWheat();
     recordFertileFieldPlanted();
     sleep(FERTILE.STEP_GAP_MS);
     clickFertileSafeClose();
-    if (silentCheckStationInFertile()) stationGoodsPending = true;
-    else sleep(FERTILE.STEP_GAP_MS);
+    sleep(FERTILE.STEP_GAP_MS);
 }
 
 // 主田种完后：马上去良田（成熟则顺便0.2s收种，未成熟则仅做借道）→ 马上去上方田地种收 → 回中
@@ -2874,7 +2904,7 @@ function harvestAll(menuAlreadyOpen) {
         }
         var imgStation = safeCaptureScreen();
         if (imgStation) {
-            if (checkStationHasGoods(imgStation)) stationGoodsPending = true;
+            if (checkStationHasGoods(imgStation, '主田收割后')) stationGoodsPending = true;
             imgStation.recycle();
         }
         return;
