@@ -2519,7 +2519,7 @@ function doFertileHarvestAndPlantInner() {
     // 3. 若未爆仓：点一下良田SafeClose（消除可能的书帖弹窗）→ 再点一次中心坐标呼出种子栏 → 拖小麦种植 → 点良田SafeClose
     while (true) {
         click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
-        sleep(FERTILE.STEP_GAP_MS);
+        sleep(400);
 
         var img = safeCaptureScreen();
         var isFullNow = false;
@@ -2559,14 +2559,14 @@ function doFertileHarvestAndPlantInner() {
     }
 
     clickFertileSafeClose();
-    sleep(FERTILE.STEP_GAP_MS);
+    sleep(400);
     click(CONFIG.CENTER_TILE[0], CONFIG.CENTER_TILE[1]);
     sleep(FERTILE.PRE_DRAG_MS);
     fertilePlantWheat();
     recordFertileFieldPlanted();
-    sleep(FERTILE.STEP_GAP_MS);
+    sleep(400);
     clickFertileSafeClose();
-    sleep(FERTILE.STEP_GAP_MS);
+    sleep(400);
 }
 
 // 主田种完后：马上去良田（成熟则顺便0.2s收种，未成熟则仅做借道）→ 马上去上方田地种收 → 回中
