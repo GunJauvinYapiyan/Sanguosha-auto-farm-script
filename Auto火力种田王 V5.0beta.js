@@ -1300,8 +1300,8 @@ function upperFieldSweep(kind, cropKey) {
         }
     }
 
-    if (!isPlant && (cKey === 'wheat' || cKey === 'rice')) {
-        clickUpperCleanSpotForCrop(cKey, '上方收割' + dispName);
+    if (cKey === 'wheat' || cKey === 'rice') {
+        clickUpperCleanSpotForCrop(cKey, (isPlant ? '上方播种' : '上方收割') + dispName);
     } else {
         click(CORN_FIELD.CLEAN_SPOT[0], CORN_FIELD.CLEAN_SPOT[1]);
         pausableSleep(500);
